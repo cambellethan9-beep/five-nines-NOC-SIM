@@ -3,11 +3,12 @@
 
 import { evaluate, type Packet } from './acl';
 import { natInbound, natOutbound, type Translation } from './nat';
+import { dynamicRoutes } from './control';
 import { formatIp, inSubnet, networkOf, type Ipv4 } from './ip';
 import type { Network } from './network';
 import type { Device } from './types';
 
-export type RouteCode = 'C' | 'L' | 'S';
+export type RouteCode = 'C' | 'L' | 'S' | 'O' | 'D' | 'R' | 'B';
 
 export interface Route {
   code: RouteCode;
@@ -18,6 +19,14 @@ export interface Route {
   nextHop: Ipv4 | null;
   iface: string | null;
   isDefault: boolean;
+  /** OSPF IA/E1/E2, EIGRP EX. */
+  sub?: 'IA' | 'E1' | 'E2' | 'EX';
+  /** "ospf 1", "eigrp 100", "rip", "bgp 65010". */
+  source?: string;
+  /** Router ID of the originator (OSPF/EIGRP). */
+  originator?: Ipv4;
+  /** Sim time the route was first installed. */
+  since?: number;
 }
 
 export interface L3Interface {
@@ -42,76 +51,79 @@ export function l3Interfaces(net: Network, device: Device): L3Interface[] {
   return result;
 }
 
-/** Builds the routing table as `show ip route` would display it. */
-export function routingTable(net: Network, device: Device): Route[] {
+/** Connected and local routes. */
+function connectedRoutes(net: Network, device: Device): Route[] {
   const table: Route[] = [];
-  const up = l3Interfaces(net, device).filter((i) => i.up);
-  for (const i of up) {
-    table.push({
-      code: 'C',
-      network: networkOf(i.address, i.prefix),
-      prefix: i.prefix,
-      distance: 0,
-      metric: 0,
-      nextHop: null,
-      iface: i.name,
-      isDefault: false,
-    });
-    if (i.prefix < 32) {
-      table.push({
-        code: 'L',
-        network: i.address,
-        prefix: 32,
-        distance: 0,
-        metric: 0,
-        nextHop: null,
-        iface: i.name,
-        isDefault: false,
-      });
-    }
+  for (const i of l3Interfaces(net, device).filter((x) => x.up)) {
+    table.push({ code: 'C', network: networkOf(i.address, i.prefix), prefix: i.prefix, distance: 0, metric: 0, nextHop: null, iface: i.name, isDefault: false });
+    if (i.prefix < 32) table.push({ code: 'L', network: i.address, prefix: 32, distance: 0, metric: 0, nextHop: null, iface: i.name, isDefault: false });
   }
-  if (!routes(device)) return table;
+  return table;
+}
 
-  // Static routes install only when their next hop resolves (recursively) or their exit interface is up.
-  const connected = [...table];
-  const statics = device.running.staticRoutes;
+/** Static routes that resolve (recursively, through `known`) or whose exit interface is up. */
+function installStatics(net: Network, device: Device, known: Route[]): Route[] {
   const installed: Route[] = [];
+  const pending = [...device.running.staticRoutes];
   let progress = true;
-  const pending = [...statics];
   while (progress) {
     progress = false;
     for (let i = pending.length - 1; i >= 0; i--) {
       const s = pending[i];
       let ok = false;
       if (s.exitIf) ok = net.isUp(device.id, s.exitIf);
-      else if (s.nextHop !== null) ok = longestMatch([...connected, ...installed], s.nextHop) !== null;
+      else if (s.nextHop !== null) ok = longestMatch([...known, ...installed], s.nextHop) !== null;
       if (ok) {
-        installed.push({
-          code: 'S',
-          network: s.network,
-          prefix: s.prefix,
-          distance: s.distance,
-          metric: 0,
-          nextHop: s.nextHop,
-          iface: s.exitIf,
-          isDefault: s.prefix === 0,
-        });
+        installed.push({ code: 'S', network: s.network, prefix: s.prefix, distance: s.distance, metric: 0, nextHop: s.nextHop, iface: s.exitIf, isDefault: s.prefix === 0 });
         pending.splice(i, 1);
         progress = true;
       }
     }
   }
-  // Keep only the lowest administrative distance per prefix (a floating static stays out until needed).
-  for (const r of installed) {
-    const better = table.find((t) => t.network === r.network && t.prefix === r.prefix && t.distance < r.distance);
-    if (better) continue;
-    for (let i = table.length - 1; i >= 0; i--) {
-      const t = table[i];
-      if (t.network === r.network && t.prefix === r.prefix && t.distance > r.distance) table.splice(i, 1);
+  return installed;
+}
+
+/**
+ * Picks, per prefix, the routes with the lowest administrative distance (equal-cost ones are all kept).
+ * Connected and local routes always stay.
+ */
+function selectByDistance(routesIn: Route[]): Route[] {
+  const out: Route[] = [];
+  const best = new Map<string, Route[]>();
+  for (const r of routesIn) {
+    if (r.code === 'C' || r.code === 'L') {
+      out.push(r);
+      continue;
     }
-    table.push(r);
+    const k = `${r.network}/${r.prefix}`;
+    const cur = best.get(k);
+    if (!cur || r.distance < cur[0].distance) best.set(k, [r]);
+    else if (r.distance === cur[0].distance && r.code === cur[0].code) cur.push(r);
   }
-  return table;
+  const connectedKeys = new Set(out.map((r) => `${r.network}/${r.prefix}`));
+  for (const [k, list] of best) if (!connectedKeys.has(k)) out.push(...list);
+  return out;
+}
+
+/** Connected + static only (what the routing protocols start from). */
+export function baseTable(net: Network, device: Device): Route[] {
+  const connected = connectedRoutes(net, device);
+  if (!routes(device)) return connected;
+  return selectByDistance([...connected, ...installStatics(net, device, connected)]);
+}
+
+/** The full table given a device's dynamic routes: connected, dynamic, and statics resolved through both. */
+export function mergeTables(net: Network, device: Device, dynamic: Route[]): Route[] {
+  const connected = connectedRoutes(net, device);
+  if (!routes(device)) return connected;
+  const statics = installStatics(net, device, [...connected, ...dynamic]);
+  return selectByDistance([...connected, ...dynamic, ...statics]);
+}
+
+/** Builds the routing table as `show ip route` would display it. */
+export function routingTable(net: Network, device: Device): Route[] {
+  if (!routes(device)) return connectedRoutes(net, device);
+  return mergeTables(net, device, dynamicRoutes(net, device.id));
 }
 
 function longestMatch(table: Route[], dest: Ipv4): Route | null {
@@ -138,9 +150,9 @@ function forwardingDecision(net: Network, device: Device, dest: Ipv4): Decision 
     let route = longestMatch(table, dest);
     let depth = 0;
     let nextHop = dest;
-    // Resolve recursive static routes down to a connected interface.
-    while (route && route.code === 'S' && depth < 8) {
-      if (route.iface) return { egress: route.iface, nextHop: route.nextHop ?? nextHop, viaInterfaceOnly: !route.nextHop };
+    // Follow the route's next hop; recursive routes (statics, iBGP) resolve down to an interface.
+    while (route && route.code !== 'C' && route.code !== 'L' && depth < 8) {
+      if (route.iface) return { egress: route.iface, nextHop: route.nextHop ?? nextHop, viaInterfaceOnly: route.code === 'S' && !route.nextHop };
       nextHop = route.nextHop!;
       route = longestMatch(table, nextHop);
       depth++;

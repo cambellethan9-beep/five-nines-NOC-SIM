@@ -32,12 +32,25 @@ import { caret, commit, INVALID, type Ctx } from './context';
 import { addNatGlobal, addNatInterface, addNatShows } from './natCommands';
 import { addDhcpDnsGlobal, addDhcpDnsShows, addDhcpPoolMode } from './dhcpDnsCommands';
 import { addMgmtGlobal, addMgmtShows } from './mgmtCommands';
+import {
+  addEigrpAf,
+  addEigrpAfInterface,
+  addEigrpTopology,
+  addNamedEigrp,
+  addRouterMode,
+  addRoutingGlobal,
+  addRoutingInterface,
+  type RouterCtx,
+} from './routingCommands';
+import { addRoutingShows } from './routingShows';
 import { loggingOf, severityOf } from '../mgmt';
 import { iosNameServer, iosResolve } from '../dns';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
 
-export type Mode = 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl' | 'dhcp';
+export type Mode =
+  | 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl' | 'dhcp'
+  | 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo';
 
 export interface CliResult {
   output: string[];
@@ -241,6 +254,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   if (kind === 'router') addNatShows(t, privileged);
   addDhcpDnsShows(t, privileged, true);
   addMgmtShows(t, privileged);
+  if (kind === 'router' || kind === 'l3switch') addRoutingShows(t, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -570,6 +584,7 @@ function buildConfig(kind: DeviceKind): Tree {
   if (kind === 'router') addNatGlobal(t);
   addDhcpDnsGlobal(t);
   addMgmtGlobal(t);
+  if (kind === 'router' || kind === 'l3switch') addRoutingGlobal(t);
   addConfigNav(t, HC);
   return t;
 }
@@ -795,6 +810,7 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
   t.add('no shutdown', HI, each((_c, ifc) => void (ifc.shutdown = false)));
   addAclInterface(t);
   if (kind === 'router') addNatInterface(t);
+  if (kind === 'router' || kind === 'l3switch') addRoutingInterface(t);
   t.add('description <line:text>', HI, each((_c, ifc, a) => void (ifc.description = (a.text as string).slice(0, 240))));
   t.add('no description', HI, each((_c, ifc) => void (ifc.description = null)));
 
@@ -945,6 +961,11 @@ interface Trees {
   line: Tree;
   acl: Tree;
   dhcp: Tree;
+  router: Tree;
+  'router-named': Tree;
+  'router-af': Tree;
+  'router-af-if': Tree;
+  'router-af-topo': Tree;
 }
 
 /** `?` after a pipe: the output modifiers, then the regular expression. */
@@ -957,6 +978,13 @@ function pipeHelp(after: string): string[] {
     return m.length ? formatHelp(m, true) : ['% Unrecognized command'];
   }
   return formatHelp([{ label: 'LINE', help: 'Regular Expression' }], false);
+}
+
+function withNav(add: (t: Tree) => void): Tree {
+  const t: Tree = new CommandTree();
+  add(t);
+  addConfigNav(t, HC);
+  return t;
 }
 
 function buildDhcpTree(): Tree {
@@ -989,6 +1017,11 @@ export function treesFor(kind: DeviceKind): Trees {
       line: buildLineMode(),
       acl: buildAclTree(),
       dhcp: buildDhcpTree(),
+      router: withNav(addRouterMode),
+      'router-named': withNav(addNamedEigrp),
+      'router-af': withNav(addEigrpAf),
+      'router-af-if': withNav(addEigrpAfInterface),
+      'router-af-topo': withNav(addEigrpTopology),
     };
     treeCache.set(kind, trees);
   }
@@ -1010,6 +1043,8 @@ export class CliSession {
   lineContext: 'con' | 'vty' | null = null;
   /** The ACL being edited in `(config-std-nacl)#` / `(config-ext-nacl)#`. */
   aclContext: string | null = null;
+  /** The routing process being configured in `(config-router)#` and its sub-modes. */
+  routerCtx: RouterCtx | null = null;
   /** The pool being edited in `(dhcp-config)#`. */
   dhcpContext: string | null = null;
   private aclType: 'standard' | 'extended' = 'standard';
@@ -1068,6 +1103,15 @@ export class CliSession {
         return `${host}(config-line)#`;
       case 'dhcp':
         return `${host}(dhcp-config)#`;
+      case 'router':
+      case 'router-named':
+        return `${host}(config-router)#`;
+      case 'router-af':
+        return `${host}(config-router-af)#`;
+      case 'router-af-if':
+        return `${host}(config-router-af-interface)#`;
+      case 'router-af-topo':
+        return `${host}(config-router-af-topology)#`;
       case 'acl':
         return `${host}(config-${this.aclType === 'standard' ? 'std' : 'ext'}-nacl)#`;
     }
@@ -1340,6 +1384,11 @@ export class CliSession {
     return logs.filter((l) => severityOf(l.message) <= max).map((l) => (l.stamp === '' ? l.message : `${l.stamp ?? this.net.formatLogTime(l.time)}: ${l.message}`));
   }
 
+  enterRouter(ctx: RouterCtx, mode: 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo'): void {
+    this.routerCtx = ctx;
+    this.mode = mode;
+  }
+
   enterDhcpPool(name: string): void {
     this.dhcpContext = name;
     this.mode = 'dhcp';
@@ -1358,6 +1407,8 @@ export class CliSession {
 
   exitMode(): void {
     if (this.mode === 'config') this.endConfig();
+    else if (this.mode === 'router-af-if' || this.mode === 'router-af-topo') this.mode = 'router-af';
+    else if (this.mode === 'router-af') this.mode = 'router-named';
     else this.mode = 'config';
   }
 
@@ -1368,6 +1419,7 @@ export class CliSession {
     this.lineContext = null;
     this.aclContext = null;
     this.dhcpContext = null;
+    this.routerCtx = null;
     const by = this.isRemote ? `${this.remoteUser || 'unknown'} on vty0` : 'console';
     this.net.log(this.deviceId, `%SYS-5-CONFIG_I: Configured from console by ${by}`);
   }

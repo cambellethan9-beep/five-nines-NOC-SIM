@@ -53,13 +53,15 @@ Downtime drain scale; whether the
 | Path | What |
 |---|---|
 | `src/sim/` | Engine, no UI: devices, L1/L2/L3 state (`network.ts`), routing/ping (`routing.ts`), IOS output (`render.ts`), SSH (`remote.ts`), PC prompt (`host.ts`), DHCP + APIPA (`dhcp.ts`), DNS resolver/cache (`dns.ts`), traffic, background noise |
-| `src/sim/cli/` | IOS command parser (`parser.ts`) and console session with all commands (`session.ts`) |
+| `src/sim/control/` | Routing protocols: OSPF, EIGRP, RIP, BGP, redistribution; cached per `net.version`, adjacency logs |
+| `src/sim/` (more) | ACLs (`acl.ts`), NAT (`nat.ts`), IOS DHCP server (`iosDhcp.ts`), syslog/NTP/SNMP (`mgmt.ts`) |
+| `src/sim/cli/` | Parser (`parser.ts`), session and modes (`session.ts`), feature command files (`*Commands.ts`, `routingShows.ts`), pipe filters |
 | `src/content/` | Cedar Ridge Accounting office (`office.ts`), predecessor docs (`docs.ts`), Phase 0 demo network (tests only) |
-| `src/game/` | Game state (`game.ts`), ticket queue, 18 ticket templates (`templates.ts`, plan/build so they save), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
+| `src/game/` | Game state (`game.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
 | `src/ui/` | React views: Tickets, Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, terminal, intro |
 | `tests/` | Vitest; tests drive the CLI like a player. Keep all tests passing |
 
-Conventions: TypeScript strict; the sim models state, not packets (reachability is computed); fixes are verified by
+Conventions: reachability takes a flow (protocol/port) so ACLs and NAT apply, replies included; routers only listen on their management ports. TypeScript strict; the sim models state, not packets (reachability is computed); fixes are verified by
 outcome (`canReach`), not by which commands were typed; new IOS features need realistic output and error messages;
 every ticket template needs a test that it breaks something, fails its check, and passes after `fix()`.
 

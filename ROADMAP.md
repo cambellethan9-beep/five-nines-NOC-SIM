@@ -141,7 +141,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] **Syslog:** `logging host`, `logging trap`, `service timestamps`; devices only appear in the Logs tab once configured
 - [x] **NTP:** client/server, `show ntp status`, clocks finally leave 1993
 - [x] **SNMP:** communities, v2c vs v3; devices only appear in Monitor once configured
-- [ ] **OSPFv2:** single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
+- [x] **OSPFv2:** single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
 - [ ] **STP (PVST+):** root bridge, PortFast, BPDU guard, loops and broadcast storms
 - [ ] **Port security:** max MACs, sticky, violation modes, err-disabled, `errdisable recovery`
 - [ ] **EtherChannel:** LACP/PAgP, mismatched members, suspended ports
@@ -152,7 +152,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 **Wave B: multi-site and security (Phase 3-4, as the network grows past one building).**
 - [ ] **Site-to-site VPN** (IPsec, GRE over IPsec) and WAN links between facilities
 - [ ] **HSRP** first-hop redundancy; dual ISP circuits
-- [ ] **BGP basics:** eBGP to the ISP, dual-homing, prefix filtering (beyond CCNA, needed at ISP scale)
+- [x] **BGP basics (built early):** eBGP to the ISP, dual-homing, prefix filtering (beyond CCNA, needed at ISP scale)
 - [ ] **IPv6:** addressing, SLAAC, static routes, OSPFv3
 - [ ] **DHCP snooping and dynamic ARP inspection** (rogue DHCP server tickets)
 - [ ] **AAA:** local, RADIUS/TACACS+, fallback when the server is down; 802.1X port authentication
@@ -200,7 +200,23 @@ error messages, the faults it can cause, and ticket templates that use it.
          what reaches NOC-PC's syslog server; Monitor graphs need the `cedar-mon` SNMP poll to answer. CR-ACC2 (a
          replacement switch) never got any of it, though the README says otherwise. Originally planned: `logging host`/`trap`, `service timestamps`, NTP client/server, SNMP v2c/v3; devices only
          appear in Logs and Monitor once configured
-  7. [ ] OSPFv2: single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
+  7. [x] Dynamic routing (all of it, owner's stipulation), computed by a control plane in `src/sim/control/`:
+         - OSPFv2: network statements and `ip ospf <pid> area`, router IDs, passive interfaces, costs and reference
+           bandwidth, hello/dead/network-type/auth/mask/stub checks (silent like IOS), area mismatch and duplicate RID
+           logs, MTU mismatch stuck in EXSTART (`ip ospf mtu-ignore`), DR/BDR election, intra/inter-area, E1/E2,
+           stub and totally stubby areas, default-information originate, ECMP, `show ip ospf [neighbor|interface
+           [brief]|database]`
+         - EIGRP classic and named mode (address-family, af-interface, topology base): K-values (mismatch logged),
+           composite and wide metrics from bandwidth/delay at negotiated speeds, passive, auto-summary, D EX
+         - RIP v1/v2: version compatibility, classful networks, auto-summary, passive (still listens), default
+         - Redistribution between all of them with IOS gotchas (`subnets`, seed metrics); BGP: eBGP/iBGP sessions,
+           network statements needing a RIB match, default-originate, AS-path loop prevention, next-hop-self,
+           ebgp-multihop, update-source; `show ip bgp [summary]`
+         - `show ip protocols`, `show ip route <proto>|<addr>`, route ages, adjacency syslogs
+         - HQ now runs OSPF area 0 between CR-CORE1 and CR-RTR1 (statics retired); Brightline is ready to peer BGP.
+           Tickets: passive-interface default, hello mismatch, area mismatch, default not originated, BGP migration
+         - Multi-site (Riverside) stays locked by rank; EIGRP/RIP/multi-area designs come into play there
+         Originally planned: OSPFv2 single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
   8. [ ] STP (PVST+, PortFast, BPDU guard), port security (sticky, violations, err-disabled, recovery), EtherChannel
          (LACP/PAgP), VTP (modes, domain, the revision wipe)
   9. [ ] Duplex-mismatch errors (CRC, late collisions), `show mac address-table`, `show interfaces counters errors`,

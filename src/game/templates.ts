@@ -13,6 +13,7 @@ import { reachService } from './services';
 import { ACL_TEMPLATES } from './ticketsAcl';
 import { NAT_TEMPLATES } from './ticketsNat';
 import { GUEST_TICKETS } from './ticketsGuest';
+import { ROUTING_TICKETS } from './ticketsRouting';
 import { flushDns, resolve } from '../sim/dns';
 import {
   FS01, INTERNET, NIC, floorOf, freePeople, freePorts, person, pickPerson, portLabel, reaches, userIncident,
@@ -527,7 +528,9 @@ const trunkPruned: TicketTemplate = {
 const defaultRouteGone: TicketTemplate = {
   id: 'default-route',
   difficulty: 'moderate',
-  canStart: (ctx) => !ctx.activeTemplates.has('default-route') && ctx.net.device('rtr1').running.staticRoutes.some((r) => r.prefix === 0),
+  canStart: (ctx) =>
+    !['default-route', 'ospf-passive-default', 'ospf-hello-mismatch', 'ospf-area-mismatch', 'ospf-default-missing', 'bgp-migration'].some((t) => ctx.activeTemplates.has(t)) &&
+    ctx.net.device('rtr1').running.staticRoutes.some((r) => r.prefix === 0),
   plan: (ctx) => {
     const tom = ctx.office.people.find((p) => p.name === 'Tom Brennan')!;
     return { pcId: ctx.busyPcs.has(tom.pcId) ? ctx.rng.pick(freePeople(ctx)).pcId : tom.pcId };
@@ -700,6 +703,7 @@ export const TEMPLATES: TicketTemplate[] = [
   ...ACL_TEMPLATES,
   ...NAT_TEMPLATES,
   ...GUEST_TICKETS,
+  ...ROUTING_TICKETS,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

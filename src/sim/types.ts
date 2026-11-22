@@ -1,4 +1,5 @@
 import type { Acl } from './acl';
+import type { InterfaceOspf, RoutingConfig } from './control/config';
 import type { IosDhcpPool } from './iosDhcp';
 import type { LoggingConfig, NtpConfig, SnmpConfig, Timestamps } from './mgmt';
 import type { NatConfig, NatEntry, NatStats } from './nat';
@@ -40,6 +41,13 @@ export interface InterfaceConfig {
   accessGroup?: { in?: string; out?: string };
   /** `ip nat inside` / `ip nat outside`. */
   nat?: 'inside' | 'outside';
+  /** `bandwidth` (kbps), `delay` (tens of microseconds), `mtu` and `ip mtu`. */
+  bandwidth?: number;
+  delay?: number;
+  mtu?: number;
+  ipMtu?: number;
+  /** `ip ospf ...` settings. */
+  ospf?: InterfaceOspf;
 }
 
 export interface StaticRoute {
@@ -98,6 +106,8 @@ export interface DeviceConfig {
   dhcpPools?: Record<string, IosDhcpPool>;
   dhcpExcluded?: [Ipv4, Ipv4][];
   serviceDhcp?: boolean;
+  /** Dynamic routing: OSPF, EIGRP, RIP and BGP. */
+  routing?: RoutingConfig;
   /** Syslog, timestamps, SNMP and NTP (absent = IOS defaults). */
   logging?: LoggingConfig;
   timestamps?: Timestamps;

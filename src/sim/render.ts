@@ -3,6 +3,8 @@
 import { aclConfigLines } from './acl';
 import { natConfigLines } from './nat';
 import { dhcpConfigLines } from './iosDhcp';
+import { ageText, bandwidthKbps, delayTens } from './control/common';
+import { interfaceRoutingLines, interfaceTopLines, routerLines } from './control/render';
 import { deviceClock, loggingBottomLines, loggingTopLines, ntpLines, timestampLines } from './mgmt';
 import { cdpIfName, compareIfNames, shortIfName } from './ifnames';
 import { classfulPrefix, formatIp, prefixToMask } from './ip';
@@ -116,12 +118,14 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     } else if (device.kind === 'l3switch' && !ifc.name.startsWith('Vlan') && !ifc.name.startsWith('Loopback')) {
       lines.push(' no switchport');
     }
+    lines.push(...interfaceTopLines(ifc));
     if (!sp) {
       lines.push(ifc.ip ? ` ip address ${formatIp(ifc.ip.address)} ${formatIp(prefixToMask(ifc.ip.prefix))}` : ' no ip address');
       if (ifc.accessGroup?.in) lines.push(` ip access-group ${ifc.accessGroup.in} in`);
       if (ifc.accessGroup?.out) lines.push(` ip access-group ${ifc.accessGroup.out} out`);
       for (const h of ifc.helpers ?? []) lines.push(` ip helper-address ${formatIp(h)}`);
       if (ifc.nat) lines.push(` ip nat ${ifc.nat}`, ' ip virtual-reassembly in');
+      lines.push(...interfaceRoutingLines(ifc));
     }
     const physical = device.hardware[ifc.name] !== undefined;
     if (physical) {
@@ -131,6 +135,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     if (ifc.shutdown) lines.push(' shutdown');
     lines.push('!');
   }
+  lines.push(...routerLines(config.routing));
   const natLines = natConfigLines(config.nat);
   if (natLines.length) lines.push(...natLines);
   if (config.defaultGateway !== null && !routes(device)) lines.push(`ip default-gateway ${formatIp(config.defaultGateway)}`);
@@ -242,14 +247,14 @@ export function showInterface(net: Network, device: Device, ifc: InterfaceConfig
   lines.push(ifc.name.startsWith('Loopback') ? `  Hardware is ${kind}` : `  Hardware is ${kind}, address is ${mac} (bia ${mac})`);
   if (ifc.description) lines.push(`  Description: ${ifc.description}`);
   if (ifc.ip && !ifc.switchport) lines.push(`  Internet address is ${formatIp(ifc.ip.address)}/${ifc.ip.prefix}`);
-  const bw = hw ? hw.maxSpeed * 1000 : 1000000;
-  lines.push(`  MTU 1500 bytes, BW ${bw} Kbit/sec, DLY 10 usec,`, '     reliability 255/255, txload 1/255, rxload 1/255');
+  const bw = bandwidthKbps(device, ifc.name, net);
+  lines.push(`  MTU ${ifc.mtu ?? 1500} bytes, BW ${bw} Kbit/sec, DLY ${delayTens(device, ifc.name) * 10} usec,`, '     reliability 255/255, txload 1/255, rxload 1/255');
   if (ifc.encapsulation?.type === 'isl') lines.push(`  Encapsulation ISL Virtual LAN, Color ${ifc.encapsulation.vlan}.`);
   else if (ifc.encapsulation) lines.push(`  Encapsulation 802.1Q Virtual LAN, Vlan ID  ${ifc.encapsulation.vlan}.`);
   else lines.push('  Encapsulation ARPA, loopback not set');
   if (hw) {
     const up = net.isUp(device.id, ifc.name);
-    const speed = ifc.speed === 'auto' ? hw.maxSpeed : ifc.speed;
+    const speed = net.negotiatedSpeed(device.id, ifc.name) ?? (ifc.speed === 'auto' ? hw.maxSpeed : ifc.speed);
     const duplex = ifc.duplex === 'auto' ? 'Full' : ifc.duplex === 'full' ? 'Full' : 'Half';
     lines.push(up ? `  ${duplex}-duplex, ${speed}Mb/s, media type is RJ45` : '  Auto-duplex, Auto-speed, media type is RJ45');
   }
@@ -285,7 +290,7 @@ export function showInterfacesStatus(net: Network, device: Device): string[] {
     const hw = device.hardware[ifc.name];
     const connected = status === 'connected';
     const duplex = ifc.duplex === 'auto' ? (connected ? 'a-full' : 'auto') : ifc.duplex;
-    const speed = ifc.speed === 'auto' ? (connected ? `a-${hw.maxSpeed}` : 'auto') : String(ifc.speed);
+    const speed = ifc.speed === 'auto' ? (connected ? `a-${net.negotiatedSpeed(device.id, ifc.name) ?? hw.maxSpeed}` : 'auto') : String(ifc.speed);
     const type = hw.maxSpeed === 1000 ? '10/100/1000BaseTX' : '10/100BaseTX';
     const name = (ifc.description ?? '').slice(0, 18);
     lines.push(
@@ -353,14 +358,90 @@ export function showVlanBrief(net: Network, device: Device): string[] {
 
 // ---- routing -----------------------------------------------------------------
 
-function routeLine(r: Route, indent: boolean): string {
-  const code = (r.code + (r.isDefault ? '*' : '')).padEnd(indent ? 9 : 6);
-  const dest = `${formatIp(r.network)}/${r.prefix}`;
-  if (r.code === 'S') {
-    const via = r.nextHop !== null ? `via ${formatIp(r.nextHop)}` : `is directly connected, ${r.iface}`;
-    return `${code}${dest} [${r.distance}/${r.metric}] ${via}`;
+function codeText(r: Route): string {
+  const star = r.isDefault ? '*' : '';
+  if (!r.sub) return r.code + star;
+  return star ? `${r.code}*${r.sub}` : `${r.code} ${r.sub}`;
+}
+
+/** One route (and its equal-cost siblings) as IOS prints them. */
+export function routeLines(net: Network, group: Route[], indent: boolean, showMask = true): string[] {
+  const r = group[0];
+  const code = codeText(r).padEnd(indent ? 9 : 6);
+  // Inside an "is subnetted" block (one mask for all), IOS leaves the mask off each line.
+  const dest = showMask ? `${formatIp(r.network)}/${r.prefix}` : formatIp(r.network);
+  if (r.code === 'C' || r.code === 'L') return [`${code}${dest} is directly connected, ${r.iface}`];
+  const via = (x: Route) => {
+    if (x.code === 'S') return x.nextHop !== null ? `via ${formatIp(x.nextHop)}` : `is directly connected, ${x.iface}`;
+    const age = x.since !== undefined ? `, ${ageText(net.time - x.since)}` : '';
+    return `via ${formatIp(x.nextHop!)}${age}${x.iface ? `, ${x.iface}` : ''}`;
+  };
+  const lines = [`${code}${dest} [${r.distance}/${r.metric}] ${via(r)}`];
+  for (const x of group.slice(1)) lines.push(`${' '.repeat(code.length + dest.length + 1)}[${x.distance}/${x.metric}] ${via(x)}`);
+  return lines;
+}
+
+/** The body of `show ip route` for a set of routes, grouped by classful network like IOS. */
+/** `full` = the whole table, when showing a filtered view (`show ip route ospf`): group headers come from it. */
+export function showRouteTable(net: Network, table: Route[], header = true, full: Route[] = table): string[] {
+  const lines: string[] = [];
+  if (header) {
+    lines.push(
+      'Codes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP',
+      '       D - EIGRP, EX - EIGRP external, O - OSPF, IA - OSPF inter area ',
+      '       N1 - OSPF NSSA external type 1, N2 - OSPF NSSA external type 2',
+      '       E1 - OSPF external type 1, E2 - OSPF external type 2',
+      '       i - IS-IS, su - IS-IS summary, L1 - IS-IS level-1, L2 - IS-IS level-2',
+      '       ia - IS-IS inter area, * - candidate default, U - per-user static route',
+      '       o - ODR, P - periodic downloaded static route, + - replicated route',
+      '',
+    );
+    const def = full.find((r) => r.isDefault);
+    lines.push(
+      def ? `Gateway of last resort is ${def.nextHop !== null ? formatIp(def.nextHop) : '0.0.0.0'} to network 0.0.0.0` : 'Gateway of last resort is not set',
+      '',
+    );
   }
-  return `${code}${dest} is directly connected, ${r.iface}`;
+  // Same prefix from the same protocol = equal-cost paths, printed together.
+  const byPrefix = new Map<string, Route[]>();
+  for (const r of table) {
+    const k = `${r.network}/${r.prefix}/${r.code}`;
+    if (!byPrefix.has(k)) byPrefix.set(k, []);
+    byPrefix.get(k)!.push(r);
+  }
+  const majorOf = (r: Route) => (r.prefix === 0 ? 0 : (r.network & prefixToMask(classfulPrefix(r.network))) >>> 0);
+  const groups = new Map<number, Route[][]>();
+  for (const g of byPrefix.values()) {
+    const major = majorOf(g[0]);
+    if (!groups.has(major)) groups.set(major, []);
+    groups.get(major)!.push(g);
+  }
+  // Header facts (subnet and mask counts) for each major network, from the full table.
+  const fullStats = new Map<number, { subnets: Set<string>; masks: Set<number> }>();
+  for (const r of full) {
+    const m = majorOf(r);
+    if (!fullStats.has(m)) fullStats.set(m, { subnets: new Set(), masks: new Set() });
+    fullStats.get(m)!.subnets.add(`${r.network}/${r.prefix}`);
+    fullStats.get(m)!.masks.add(r.prefix);
+  }
+  for (const major of [...groups.keys()].sort((a, b) => a - b)) {
+    const list = groups.get(major)!.sort((a, b) => a[0].network - b[0].network || a[0].prefix - b[0].prefix || (a[0].code === 'L' ? 1 : 0) - (b[0].code === 'L' ? 1 : 0));
+    const classful = classfulPrefix(major);
+    const stats = fullStats.get(major)!;
+    const isSubnetted = [...stats.masks].some((p) => p > classful) && major !== 0;
+    if (!isSubnetted) {
+      for (const g of list) lines.push(...routeLines(net, g, false));
+      continue;
+    }
+    const masks = stats.masks;
+    lines.push(
+      masks.size > 1
+        ? `      ${formatIp(major)}/${classful} is variably subnetted, ${stats.subnets.size} subnets, ${masks.size} masks`
+        : `      ${formatIp(major)}/${[...masks][0]} is subnetted, ${stats.subnets.size} subnets`,
+    );
+    for (const g of list) lines.push(...routeLines(net, g, true, masks.size > 1));
+  }
+  return lines;
 }
 
 export function showIpRoute(net: Network, device: Device): string[] {
@@ -373,49 +454,7 @@ export function showIpRoute(net: Network, device: Device): string[] {
       'ICMP redirect cache is empty',
     ];
   }
-  const table = routingTable(net, device);
-  const lines = [
-    'Codes: L - local, C - connected, S - static, R - RIP, M - mobile, B - BGP',
-    '       D - EIGRP, EX - EIGRP external, O - OSPF, IA - OSPF inter area ',
-    '       N1 - OSPF NSSA external type 1, N2 - OSPF NSSA external type 2',
-    '       E1 - OSPF external type 1, E2 - OSPF external type 2',
-    '       i - IS-IS, su - IS-IS summary, L1 - IS-IS level-1, L2 - IS-IS level-2',
-    '       ia - IS-IS inter area, * - candidate default, U - per-user static route',
-    '       o - ODR, P - periodic downloaded static route, + - replicated route',
-    '',
-  ];
-  const def = table.find((r) => r.isDefault);
-  lines.push(
-    def
-      ? `Gateway of last resort is ${def.nextHop !== null ? formatIp(def.nextHop) : '0.0.0.0'} to network 0.0.0.0`
-      : 'Gateway of last resort is not set',
-    '',
-  );
-  // Group by classful network, as IOS does.
-  const groups = new Map<number, Route[]>();
-  for (const r of table) {
-    const major = r.prefix === 0 ? 0 : (r.network & prefixToMask(classfulPrefix(r.network))) >>> 0;
-    if (!groups.has(major)) groups.set(major, []);
-    groups.get(major)!.push(r);
-  }
-  const sortedMajors = [...groups.keys()].sort((a, b) => a - b);
-  for (const major of sortedMajors) {
-    const group = groups.get(major)!.sort((a, b) => a.network - b.network || a.prefix - b.prefix);
-    const classful = classfulPrefix(major);
-    const isSubnetted = group.some((r) => r.prefix > classful) && major !== 0;
-    if (!isSubnetted) {
-      for (const r of group) lines.push(routeLine(r, false));
-      continue;
-    }
-    const masks = new Set(group.map((r) => r.prefix));
-    lines.push(
-      masks.size > 1
-        ? `      ${formatIp(major)}/${classful} is variably subnetted, ${group.length} subnets, ${masks.size} masks`
-        : `      ${formatIp(major)}/${[...masks][0]} is subnetted, ${group.length} subnets`,
-    );
-    for (const r of group) lines.push(routeLine(r, true));
-  }
-  return lines;
+  return showRouteTable(net, routingTable(net, device));
 }
 
 export function showArp(net: Network, device: Device): string[] {

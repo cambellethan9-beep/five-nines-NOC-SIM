@@ -13,6 +13,7 @@ import type { HostOptions } from '../sim/host';
 import { maskToPrefix, parseIp } from '../sim/ip';
 import { dhcpRequest } from '../sim/dhcp';
 import { DOMAIN } from '../sim/dns';
+import { newBgp, newOspf } from '../sim/control/config';
 import { Network } from '../sim/network';
 import type { Device, StaticRoute } from '../sim/types';
 
@@ -100,7 +101,16 @@ export const NETWORK_DEVICES: NetworkDeviceInfo[] = [
   { id: 'acc2', hostname: 'CR-ACC2', model: 'NS-S2900', mgmtIp: '10.10.99.12', location: '2nd floor IDF closet', role: 'Access switch, 2nd floor' },
 ];
 
-export const ISP = { name: 'Brightline Fiber', circuit: 'BLF-88213-CR', wanIp: '203.0.113.2/30', gateway: '203.0.113.1', support: '1-800-555-0142' };
+export const ISP = {
+  name: 'Brightline Fiber',
+  circuit: 'BLF-88213-CR',
+  wanIp: '203.0.113.2/30',
+  gateway: '203.0.113.1',
+  support: '1-800-555-0142',
+  /** Brightline's AS, and the private AS they assigned us for BGP. */
+  asn: 64500,
+  ourAsn: 65010,
+};
 
 /** Where things are, for walking and for the map. */
 export interface Zone {
@@ -205,6 +215,18 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   isp.running.interfaces['GigabitEthernet0/1'].ip = ip('8.8.8.1 255.255.255.0');
   // The ISP knows nothing about our private 10.x space: only NAT on CR-RTR1 gets replies home.
   isp.running.lines.vty.transport = { ssh: false, telnet: false };
+  // Brightline is ready to peer BGP with us (our AS would be 65010) and send a default route. We don't, yet.
+  isp.running.routing = {
+    ospf: [],
+    eigrp: [],
+    rip: null,
+    bgp: {
+      ...newBgp(ISP.asn),
+      routerId: parseIp('203.0.113.1'),
+      neighbors: { '203.0.113.2': { remoteAs: ISP.ourAsn, description: COMPANY, defaultOriginate: true } },
+      networks: [{ addr: parseIp('8.8.8.0')!, prefix: 24 }],
+    },
+  };
   place('internet', 650, 40, 'outside');
   place('isp', 650, 128, 'outside');
 
@@ -218,7 +240,21 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   g1.shutdown = false;
   g1.description = `WAN - ${ISP.name} circuit ${ISP.circuit}`;
   g1.ip = ip('203.0.113.2 255.255.255.252');
-  rtr.running.staticRoutes.push(route('0.0.0.0', '0.0.0.0', '203.0.113.1'), route('10.10.0.0', '255.255.0.0', '10.0.0.2'));
+  // A static default to the ISP, handed to the core through OSPF; internal routes come back the same way.
+  rtr.running.staticRoutes.push(route('0.0.0.0', '0.0.0.0', '203.0.113.1'));
+  rtr.running.routing = {
+    ospf: [
+      {
+        ...newOspf(1),
+        routerId: parseIp('10.255.255.1'),
+        networks: [{ addr: parseIp('10.0.0.0')!, wildcard: parseIp('0.0.0.3')!, area: 0 }],
+        defaultOriginate: { always: false },
+      },
+    ],
+    eigrp: [],
+    rip: null,
+    bgp: null,
+  };
   // PAT: every inside address shares the WAN address on the way out.
   g0.nat = 'inside';
   g1.nat = 'outside';
@@ -270,7 +306,23 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
       leaseMs: 8 * 3600_000,
     },
   };
-  core.running.staticRoutes.push(route('0.0.0.0', '0.0.0.0', '10.0.0.1'));
+  // OSPF area 0 with CR-RTR1 over the routed uplink; every VLAN is advertised, only the uplink talks OSPF.
+  core.running.routing = {
+    ospf: [
+      {
+        ...newOspf(1),
+        routerId: parseIp('10.255.255.2'),
+        networks: [
+          { addr: parseIp('10.0.0.0')!, wildcard: parseIp('0.0.0.3')!, area: 0 },
+          { addr: parseIp('10.10.0.0')!, wildcard: parseIp('0.0.255.255')!, area: 0 },
+        ],
+        passive: { passiveDefault: true, exceptions: ['FastEthernet0/24'] },
+      },
+    ],
+    eigrp: [],
+    rip: null,
+    bgp: null,
+  };
   trunk(core, 'GigabitEthernet0/1', 'Trunk to CR-ACC1');
   trunk(core, 'GigabitEthernet0/2', 'Trunk to CR-ACC2');
   place('core1', 650, 302, 'server');

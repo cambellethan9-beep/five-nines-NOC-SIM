@@ -8,6 +8,7 @@ import type { Device, InterfaceConfig, InterfaceState, Link, LinkEnd } from './t
 import { isHostKind } from './types';
 import type { Ipv4 } from './ip';
 import { logStamp, syslogDelivered } from './mgmt';
+import { logControlChanges } from './control';
 
 export interface LogEntry {
   seq: number;
@@ -32,6 +33,8 @@ export class Network {
   readonly devices = new Map<string, Device>();
   readonly links: Link[] = [];
   readonly logs: LogEntry[] = [];
+  /** Bumped on every commit; routing protocol results are cached per version. */
+  version = 0;
   /** Where devices' syslog has to arrive for the NOC to see it (the NOC PC). null = see everything. */
   syslogCollector: Ipv4 | null = null;
   readonly rng: Rng;
@@ -110,6 +113,22 @@ export class Network {
     if (changed) this.commit();
   }
 
+  /** Link speed in Mb/s an Ethernet port runs at: its own setting, capped by the far end. null if no link. */
+  negotiatedSpeed(deviceId: string, iface: string): number | null {
+    const dev = this.device(deviceId);
+    const hw = dev.hardware[iface];
+    if (!hw || !this.isUp(deviceId, iface)) return null;
+    const own = dev.running.interfaces[iface]?.speed;
+    const mine = own === 'auto' || own === undefined ? hw.maxSpeed : own;
+    const peer = this.peerOf(deviceId, iface);
+    if (!peer) return mine;
+    const pd = this.device(peer.device);
+    const phw = pd.hardware[peer.iface];
+    const ps = pd.running.interfaces[peer.iface]?.speed;
+    const theirs = ps === 'auto' || ps === undefined ? (phw?.maxSpeed ?? mine) : ps;
+    return Math.min(mine, theirs);
+  }
+
   wallClock(time = this.time): Date {
     return new Date(EPOCH + time);
   }
@@ -152,7 +171,11 @@ export class Network {
     }
     this.computeDomains();
     this.expireArp();
-    if (!options.silent) this.emitStateLogs(previous);
+    this.version++;
+    if (!options.silent) {
+      this.emitStateLogs(previous);
+      logControlChanges(this);
+    }
   }
 
   state(deviceId: string, iface: string): InterfaceState {
