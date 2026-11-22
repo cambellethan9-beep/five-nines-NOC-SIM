@@ -65,3 +65,33 @@ describe('desk visit actions', () => {
     expect(lookBehind(net, pc).jackLabel).toBe('CR-ACC1 Fa0/3');
   });
 });
+
+describe('network settings panel', () => {
+  it('fixes a wrong static gateway by switching back to DHCP', async () => {
+    const { Game } = await import('../src/game/game');
+    const { applyIpSettings, currentIpSettings } = await import('../src/game/desk');
+    const game = new Game('gw');
+    game.queue.tickets[0].draft.fix();
+    game.queue.startTemplate('wrong-gateway', 0);
+    game.tick(5_000);
+    const t = game.queue.tickets.find((x) => x.draft.templateId === 'wrong-gateway')!;
+    const pc = game.net.device(t.draft.reporter.pcId);
+    pc.powered = true;
+    game.net.commit({ silent: true });
+    const before = currentIpSettings(pc);
+    expect(before.dhcp).toBe(false);
+    expect(before.gateway).toBe('10.10.10.254');
+    expect(game.queue.resolve(t.id, '').ok).toBe(false);
+    expect(applyIpSettings(game.net, pc, { ...before, dhcp: true, dns: '' })).toMatch(/Got 10\.10\.10\.\d+ from 10\.10\.20\.10/);
+    expect(game.queue.resolve(t.id, 'back to DHCP').ok).toBe(true);
+  });
+
+  it('validates input like Windows, and warns about an off-subnet gateway', async () => {
+    const { applyIpSettings } = await import('../src/game/desk');
+    const { net, pc } = pcOf();
+    pc.hostNet = { dhcp: true, lease: null, apipa: false, dnsServer: null, dnsCache: {} };
+    expect(applyIpSettings(net, pc, { dhcp: false, ip: '10.10.10.300', mask: '255.255.255.0', gateway: '', dns: '' })).toMatch(/IP address you entered is not valid/);
+    expect(applyIpSettings(net, pc, { dhcp: false, ip: '10.10.10.103', mask: '255.0.255.0', gateway: '', dns: '' })).toMatch(/subnet mask/);
+    expect(applyIpSettings(net, pc, { dhcp: false, ip: '10.10.10.103', mask: '255.255.255.0', gateway: '10.10.20.1', dns: '' })).toMatch(/not on the same network segment/);
+  });
+});

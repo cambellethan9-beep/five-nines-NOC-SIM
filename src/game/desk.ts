@@ -1,7 +1,8 @@
 // What you can do in person at someone's desk: look behind the PC, reseat or replace the cable,
 // and work in Windows (adapter status, Device Manager, drivers).
 
-import { parseIp } from '../sim/ip';
+import { dhcpRequest } from '../sim/dhcp';
+import { formatIp, inSubnet, maskToPrefix, parseIp, prefixToMask } from '../sim/ip';
 import type { Network } from '../sim/network';
 import { canReach } from '../sim/routing';
 import { CURRENT_NIC_DRIVER, type Device } from '../sim/types';
@@ -10,7 +11,7 @@ const NIC = 'FastEthernet0';
 export const ADAPTER_NAME = 'NetSmart NS-1000 Gigabit Ethernet';
 export const USB_DRIVER = `NetSmart LAN driver ${CURRENT_NIC_DRIVER} (IT toolkit USB)`;
 
-export type NetStatus = 'connected' | 'no-internet' | 'unplugged' | 'disconnected' | 'no-adapter' | 'asleep';
+export type NetStatus = 'connected' | 'no-internet' | 'unidentified' | 'unplugged' | 'disconnected' | 'no-adapter' | 'asleep';
 
 export function deskStatus(net: Network, pc: Device): NetStatus {
   if (!pc.powered) return 'asleep';
@@ -19,6 +20,7 @@ export function deskStatus(net: Network, pc: Device): NetStatus {
   const link = net.linkAt(pc.id, NIC);
   if (!link || link.cable === 'unplugged') return 'unplugged';
   if (!net.isUp(pc.id, NIC)) return 'disconnected';
+  if (pc.hostNet?.apipa) return 'unidentified';
   return canReach(net, pc.id, parseIp('8.8.8.8')!) ? 'connected' : 'no-internet';
 }
 
@@ -104,4 +106,65 @@ export function updateDriver(net: Network, pc: Device, source: 'auto' | 'usb'): 
 export function wake(net: Network, pc: Device): void {
   pc.powered = true;
   net.commit();
+}
+
+export interface IpSettings {
+  dhcp: boolean;
+  ip: string;
+  mask: string;
+  gateway: string;
+  dns: string;
+}
+
+/** What the IPv4 Properties dialog shows right now. */
+export function currentIpSettings(pc: Device): IpSettings {
+  const ifc = pc.running.interfaces[Object.keys(pc.hardware)[0]];
+  const hn = pc.hostNet;
+  const dns = hn ? (hn.dhcp ? null : hn.dnsServer) : null;
+  return {
+    dhcp: !!hn?.dhcp,
+    ip: ifc.ip && !hn?.dhcp ? formatIp(ifc.ip.address) : '',
+    mask: ifc.ip && !hn?.dhcp ? formatIp(prefixToMask(ifc.ip.prefix)) : '',
+    gateway: pc.running.defaultGateway !== null && !hn?.dhcp ? formatIp(pc.running.defaultGateway) : '',
+    dns: dns !== null ? formatIp(dns) : '',
+  };
+}
+
+/** Applies the IPv4 Properties dialog. Returns a message (Windows-style errors for bad input). */
+export function applyIpSettings(net: Network, pc: Device, s: IpSettings): string {
+  if (!pc.hostNet) return 'This machine is managed by the server team.';
+  const nicName = Object.keys(pc.hardware)[0];
+  if (s.dhcp) {
+    const manualDns = s.dns.trim() ? parseIp(s.dns) : null;
+    if (s.dns.trim() && manualDns === null) return 'The DNS server address you entered is not valid.';
+    pc.hostNet.dhcp = true;
+    pc.hostNet.dnsServer = manualDns;
+    const r = dhcpRequest(net, pc.id);
+    if (r.ok) return `Set to obtain an address automatically. Got ${formatIp(r.lease.ip)} from ${formatIp(r.lease.server)}.`;
+    if (r.reason === 'no-answer') return 'Set to obtain an address automatically. No DHCP server answered, so Windows picked a 169.254.x.x address.';
+    return 'Set to obtain an address automatically. It will ask for one when the network connects.';
+  }
+  const ip = parseIp(s.ip);
+  const mask = parseIp(s.mask);
+  const gw = s.gateway.trim() ? parseIp(s.gateway) : null;
+  const dns = s.dns.trim() ? parseIp(s.dns) : null;
+  if (ip === null) return 'The IP address you entered is not valid.';
+  if (mask === null || maskToPrefix(mask) === null || maskToPrefix(mask) === 0) return 'The subnet mask you entered is not valid.';
+  if (s.gateway.trim() && gw === null) return 'The default gateway you entered is not valid.';
+  if (s.dns.trim() && dns === null) return 'The DNS server address you entered is not valid.';
+  const prefix = maskToPrefix(mask)!;
+  if (gw !== null && !inSubnet(gw, ip, prefix)) {
+    // Windows warns about this but still saves it, and so do we.
+    applyStatic(net, pc, nicName, ip, prefix, gw, dns);
+    return 'Saved. Warning: the default gateway is not on the same network segment (subnet) as the IP address.';
+  }
+  applyStatic(net, pc, nicName, ip, prefix, gw, dns);
+  return 'Saved.';
+}
+
+function applyStatic(net: Network, pc: Device, nicName: string, ip: number, prefix: number, gw: number | null, dns: number | null): void {
+  Object.assign(pc.hostNet!, { dhcp: false, lease: null, apipa: false, dnsServer: dns });
+  pc.running.interfaces[nicName].ip = { address: ip, prefix };
+  pc.running.defaultGateway = gw;
+  net.commit({ silent: true });
 }

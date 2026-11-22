@@ -12,6 +12,8 @@ import type { Network } from '../sim/network';
 import type { Rng } from '../sim/rng';
 import { canReach } from '../sim/routing';
 import { CURRENT_NIC_DRIVER } from '../sim/types';
+import { dhcpRequest, forceApipa } from '../sim/dhcp';
+import { flushDns, resolve } from '../sim/dns';
 import type { Difficulty, Priority } from './scoring';
 
 export type Params = Record<string, string | number | boolean>;
@@ -251,7 +253,7 @@ const movedDesk: TicketTemplate = {
       difficulty: 'moderate',
       truePriority: 3,
       subject: `Moved to desk ${params.desk}, no network`,
-      explain: `The port at desk ${params.desk} (${String(params.to) === 'acc1' ? 'CR-ACC1' : 'CR-ACC2'} ${String(params.port).replace('FastEthernet', 'Fa')}) had never been configured, so it was still in VLAN 1. Put it in VLAN 10 as an access port.`,
+      explain: `The port at desk ${params.desk} (${String(params.to) === 'acc1' ? 'CR-ACC1' : 'CR-ACC2'} ${String(params.port).replace('FastEthernet', 'Fa')}) had never been configured, so it was still in VLAN 1, and the PC had given up on DHCP and taken a 169.254.x.x address. Put the port in VLAN 10, then renew the PC's address (\`ipconfig /renew\`, or bounce the port).`,
       hint: 'New desk, new switch port. What VLAN is an unused port in by default?',
       description: `Hi! I moved to the empty desk ${params.desk} this morning to sit with my team. Plugged everything back in the same way but my PC can't connect to anything now.`,
       reporter: p,
@@ -261,6 +263,8 @@ const movedDesk: TicketTemplate = {
         net.connect(p.pcId, NIC, sw.id, port);
         p.desk = String(params.desk);
         net.commit();
+        // Plugged in at the new desk: Windows asks for an address. Nobody answers in VLAN 1.
+        dhcpRequest(net, p.pcId);
       },
       check: () => reaches(net, p.pcId, FS01, INTERNET),
       fix: () => {
@@ -269,6 +273,7 @@ const movedDesk: TicketTemplate = {
         ifc.switchport!.accessVlan = 10;
         ifc.shutdown = false;
         net.commit();
+        dhcpRequest(net, p.pcId);
       },
     };
   },
@@ -415,6 +420,132 @@ const newPcNoDriver = userTicket('driver-missing', 'easy', (env, params) => {
     },
   });
 });
+
+// ---- addressing and name resolution ------------------------------------------------------------
+
+const apipaBlip = userTicket('apipa-blip', 'trivial', (env, params) => {
+  const net = env.net;
+  const p = person(env, params.pcId);
+  return userIncident(env, params, {
+    templateId: 'apipa-blip',
+    difficulty: 'trivial',
+    truePriority: 3,
+    subject: 'Still no network after the blip this morning',
+    description: variant(
+      [
+        `There was a network blip this morning. Everyone else came back but my computer still says "No internet".`,
+        `My PC lost the network for a second earlier and never came back. Others around me are fine.`,
+      ],
+      params,
+    ),
+    inject: () => forceApipa(net, p.pcId),
+    fix: () => void dhcpRequest(net, p.pcId),
+    explain: `${p.pc}'s PC asked for an address during a brief outage, got no answer, and fell back to a 169.254.x.x (APIPA) address. Windows doesn't keep retrying; \`ipconfig /renew\` got it a real lease.`,
+    hint: 'Check what IP their PC actually has. An address starting with 169.254 means DHCP never answered.',
+  });
+});
+
+const wrongGateway = userTicket('wrong-gateway', 'easy', (env, params) => {
+  const net = env.net;
+  const p = person(env, params.pcId);
+  const pc = () => net.device(p.pcId);
+  return userIncident(env, params, {
+    templateId: 'wrong-gateway',
+    difficulty: 'easy',
+    truePriority: 3,
+    subject: 'No internet or S: drive since the contractor visit',
+    description: variant(
+      [
+        `I can't get to the internet or the S: drive. An IT contractor "fixed" my network settings yesterday.`,
+        `Nothing outside my computer works. Someone from the vendor changed something on my PC last week.`,
+      ],
+      params,
+    ),
+    inject: () => {
+      const d = pc();
+      const addr = d.running.interfaces[NIC].ip;
+      // Set to static with the old gateway from before the core switch took over routing.
+      Object.assign(d.hostNet!, { dhcp: false, lease: null, apipa: false, dnsServer: parseIp('10.10.20.10') });
+      d.running.interfaces[NIC].ip = addr;
+      d.running.defaultGateway = parseIp('10.10.10.254');
+      net.commit({ silent: true });
+    },
+    fix: () => {
+      pc().hostNet!.dhcp = true;
+      dhcpRequest(net, p.pcId);
+    },
+    explain: `${p.pc} had been set to a static address with default gateway 10.10.10.254. The staff VLAN's gateway is 10.10.10.1 (CR-CORE1). Set it back to "Obtain an IP address automatically".`,
+    hint: 'Nothing outside their own subnet answers. Compare their default gateway with the one in the docs.',
+  });
+});
+
+const staleDns = userTicket('stale-dns', 'easy', (env, params) => {
+  const net = env.net;
+  const p = person(env, params.pcId);
+  const pc = () => net.device(p.pcId);
+  const name = 'ledgerworks.cedarridge.local';
+  return {
+    ...userIncident(env, params, {
+      templateId: 'stale-dns',
+      difficulty: 'easy',
+      truePriority: 3,
+      subject: 'LedgerWorks won\'t connect, only for me',
+      description: `LedgerWorks says "cannot connect to server" on my computer, but the person next to me can use it fine. I already closed and reopened it.`,
+      inject: () => {
+        // A cached answer from before LedgerWorks moved servers last month, with a very long TTL.
+        pc().hostNet!.dnsCache[name] = { ip: parseIp('10.10.20.99')!, expires: net.time + 48 * 60 * 60_000 };
+      },
+      fix: () => flushDns(pc()),
+      explain: `${p.pc}'s DNS cache still had ledgerworks pointing at 10.10.20.99, the old server from before last month's move. \`nslookup\` asks the DNS server directly and showed the right address (10.10.20.12); \`ipconfig /displaydns\` showed the stale entry, and \`ipconfig /flushdns\` cleared it.`,
+      hint: 'It works for the person next to them, so the server is fine. How does their PC find LedgerWorks? Compare what `nslookup ledgerworks` says with what `ping ledgerworks` uses.',
+    }),
+    check: () =>
+      withAwake(net, [p.pcId], () => {
+        const r = resolve(net, p.pcId, name);
+        return r.ok && r.ip === parseIp('10.10.20.12') && canReach(net, p.pcId, r.ip);
+      }),
+  };
+});
+
+const helperMissing: TicketTemplate = {
+  id: 'helper-missing',
+  difficulty: 'moderate',
+  canStart: (ctx) =>
+    !ctx.activeTemplates.has('helper-missing') &&
+    (ctx.net.device('core1').running.interfaces['Vlan10']?.helpers ?? []).length > 0 &&
+    freePeople(ctx).length > 0,
+  plan: pickPerson,
+  build: (env, params) => {
+    const net = env.net;
+    const p = person(env, params.pcId);
+    const svi = () => net.device('core1').running.interfaces['Vlan10'];
+    return {
+      templateId: 'helper-missing',
+      params,
+      kind: 'incident',
+      difficulty: 'moderate',
+      truePriority: 2,
+      subject: 'PC restarted and now nothing works',
+      description: `My computer restarted for updates and now nothing works. I've restarted it twice more, no luck.`,
+      reporter: p,
+      pcs: [p.pcId],
+      inject: () => {
+        // A config "cleanup" on the core removed the DHCP relay for the staff VLAN.
+        svi().helpers = [];
+        net.commit();
+        dhcpRequest(net, p.pcId);
+      },
+      check: () => reaches(net, p.pcId, FS01, INTERNET),
+      fix: () => {
+        svi().helpers = [parseIp('10.10.20.10')!];
+        net.commit();
+        for (const d of net.devices.values()) if (d.hostNet?.dhcp && d.hostNet.apipa) dhcpRequest(net, d.id);
+      },
+      explain: `Someone removed \`ip helper-address 10.10.20.10\` from CR-CORE1's Vlan10 interface, so DHCP requests from the staff VLAN never reached CR-DC01. Every PC that rebooted or woke up got a 169.254 address. Put the helper back, then renew the affected PCs.`,
+      hint: '169.254 means no DHCP answer, and the DHCP server lives in a different VLAN. How do DHCP broadcasts cross VLANs?',
+    };
+  },
+};
 
 // ---- bigger problems --------------------------------------------------------------------------
 
@@ -618,6 +749,7 @@ const partnerVlan: TicketTemplate = {
         const pc = net.device(p.person.pcId);
         pc.running.interfaces[NIC].ip = { address: parseIp(p.ip)!, prefix: 24 };
         pc.running.defaultGateway = parseIp('10.10.50.1');
+        if (pc.hostNet) Object.assign(pc.hostNet, { dhcp: false, lease: null, apipa: false, dnsServer: parseIp('10.10.20.10') });
       }
       net.commit({ silent: true });
     };
@@ -644,7 +776,7 @@ const partnerVlan: TicketTemplate = {
         // Simulate the desktop team's re-IP. Keep it if everything works, roll back if not.
         const before = plan.map((p) => {
           const pc = net.device(p.person.pcId);
-          return { pc, ip: pc.running.interfaces[NIC].ip, gw: pc.running.defaultGateway };
+          return { pc, ip: pc.running.interfaces[NIC].ip, gw: pc.running.defaultGateway, hostNet: structuredClone(pc.hostNet) };
         });
         reIp();
         const ok = withAwake(net, plan.map((p) => p.person.pcId), () =>
@@ -654,6 +786,7 @@ const partnerVlan: TicketTemplate = {
           for (const b of before) {
             b.pc.running.interfaces[NIC].ip = b.ip;
             b.pc.running.defaultGateway = b.gw;
+            b.pc.hostNet = b.hostNet;
           }
           net.commit({ silent: true });
         }
@@ -694,6 +827,10 @@ export const TEMPLATES: TicketTemplate[] = [
   fileServerSpeed,
   movedDesk,
   partnerVlan,
+  apipaBlip,
+  wrongGateway,
+  staleDns,
+  helperMissing,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

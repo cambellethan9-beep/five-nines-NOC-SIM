@@ -1,14 +1,15 @@
 import { useState } from 'react';
-import { ADAPTER_NAME, deskStatus, lookBehind, reseatCable, replaceCable, setAdapterEnabled, updateDriver, USB_DRIVER, wake, type NetStatus } from '../game/desk';
+import { ADAPTER_NAME, applyIpSettings, currentIpSettings, deskStatus, lookBehind, reseatCable, replaceCable, setAdapterEnabled, updateDriver, USB_DRIVER, wake, type NetStatus } from '../game/desk';
 import type { Game } from '../game/game';
 import { formatIp, prefixToMask } from '../sim/ip';
 import { Terminal } from './Terminal';
 
-type Tab = 'status' | 'devices' | 'cmd';
+type Tab = 'status' | 'settings' | 'devices' | 'cmd';
 
 const STATUS_TEXT: Record<NetStatus, { title: string; detail: string; tone: 'ok' | 'warn' | 'bad' }> = {
   connected: { title: 'Connected', detail: 'Internet access', tone: 'ok' },
   'no-internet': { title: 'No internet access', detail: 'Connected to a network, but nothing beyond it answers', tone: 'warn' },
+  unidentified: { title: 'Unidentified network', detail: 'No internet access. Windows could not get an address from a DHCP server', tone: 'warn' },
   unplugged: { title: 'Network cable unplugged', detail: 'Ethernet: cable unplugged', tone: 'bad' },
   disconnected: { title: 'Not connected', detail: 'Ethernet: no link', tone: 'bad' },
   'no-adapter': { title: 'No network adapters', detail: 'Windows can\'t find a working network adapter', tone: 'bad' },
@@ -42,7 +43,7 @@ export function DeskView({ game, pcId, tick, visible }: { game: Game; pcId: stri
             {person ? ` · ${person.name}'s desk ${person.desk}` : ''}
           </span>
           <span className={`win-net tone-${s.tone}`} title={s.title}>
-            {status === 'connected' ? '▮▮▮ Connected' : status === 'no-internet' ? '⚠ No internet' : status === 'asleep' ? 'Asleep' : '✕ ' + s.title}
+            {status === 'connected' ? '▮▮▮ Connected' : status === 'no-internet' || status === 'unidentified' ? '⚠ No internet' : status === 'asleep' ? 'Asleep' : '✕ ' + s.title}
           </span>
         </div>
 
@@ -59,6 +60,7 @@ export function DeskView({ game, pcId, tick, visible }: { game: Game; pcId: stri
               {(
                 [
                   ['status', 'Network status'],
+                  ['settings', 'Network settings'],
                   ['devices', 'Device Manager'],
                   ['cmd', 'Command Prompt'],
                 ] as [Tab, string][]
@@ -91,6 +93,8 @@ export function DeskView({ game, pcId, tick, visible }: { game: Game; pcId: stri
                   {status === 'no-adapter' && <p className="ns-hint">Device Manager will show what's going on with the adapter.</p>}
                 </div>
               )}
+
+              {tab === 'settings' && <IpSettingsForm key={pcId + String(pc.hostNet?.dhcp)} game={game} pcId={pcId} onResult={act} />}
 
               {tab === 'devices' && (
                 <div className="devmgr">
@@ -213,5 +217,54 @@ export function DeskView({ game, pcId, tick, visible }: { game: Game; pcId: stri
         </div>
       </aside>
     </div>
+  );
+}
+
+function IpSettingsForm({ game, pcId, onResult }: { game: Game; pcId: string; onResult: (text: string) => void }) {
+  const pc = game.net.device(pcId);
+  const [s, setS] = useState(() => currentIpSettings(pc));
+  const field = (key: 'ip' | 'mask' | 'gateway' | 'dns', label: string) => (
+    <label className="ip-field">
+      <span>{label}</span>
+      <input
+        id={`ip-${key}`}
+        className="mono"
+        value={s[key]}
+        disabled={s.dhcp && key !== 'dns'}
+        onChange={(e) => setS({ ...s, [key]: e.target.value })}
+        placeholder={s.dhcp && key !== 'dns' ? 'from DHCP' : ''}
+        spellCheck={false}
+        autoComplete="off"
+      />
+    </label>
+  );
+  if (!pc.hostNet) return <p className="ns-hint">This machine's network settings are managed by the server team.</p>;
+  return (
+    <form
+      className="ip-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onResult(applyIpSettings(game.net, pc, s));
+      }}
+    >
+      <p className="ns-hint">Internet Protocol Version 4 (TCP/IPv4) Properties</p>
+      <label className="ip-radio">
+        <input type="radio" name="ipmode" checked={s.dhcp} onChange={() => setS({ ...s, dhcp: true })} /> Obtain an IP address automatically
+      </label>
+      <label className="ip-radio">
+        <input type="radio" name="ipmode" checked={!s.dhcp} onChange={() => setS({ ...s, dhcp: false })} /> Use the following IP address:
+      </label>
+      <div className="ip-grid">
+        {field('ip', 'IP address')}
+        {field('mask', 'Subnet mask')}
+        {field('gateway', 'Default gateway')}
+      </div>
+      <div className="ip-grid">{field('dns', s.dhcp ? 'Preferred DNS server (blank = from DHCP)' : 'Preferred DNS server')}</div>
+      <div className="dm-buttons">
+        <button className="primary small" type="submit">
+          OK
+        </button>
+      </div>
+    </form>
   );
 }

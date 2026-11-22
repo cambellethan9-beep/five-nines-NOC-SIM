@@ -30,6 +30,8 @@ export interface InterfaceConfig {
   encapsulation: { vlan: number; native: boolean; type?: 'dot1q' | 'isl' } | null;
   speed: 'auto' | 10 | 100 | 1000;
   duplex: 'auto' | 'half' | 'full';
+  /** `ip helper-address`: DHCP relay targets (absent on older saves). */
+  helpers?: Ipv4[];
 }
 
 export interface StaticRoute {
@@ -115,6 +117,11 @@ export interface Device {
   arp: Map<Ipv4, ArpEntry>;
   /** Network adapter on PCs, servers and printers (what Device Manager shows). */
   nic?: NicState;
+  /** Windows IP settings on PCs (absent = fully static, as on servers, printers and older saves). */
+  hostNet?: HostNet;
+  /** DHCP and DNS services (CR-DC01 runs both). */
+  dhcpServer?: DhcpServer;
+  dnsZone?: Record<string, Ipv4>;
 }
 
 export interface LinkEnd {
@@ -140,6 +147,44 @@ export interface NicState {
 }
 
 export const CURRENT_NIC_DRIVER = '4.2.1';
+
+export interface DhcpLease {
+  ip: Ipv4;
+  prefix: number;
+  gateway: Ipv4 | null;
+  dns: Ipv4 | null;
+  server: Ipv4;
+  obtainedAt: number;
+}
+
+export interface HostNet {
+  /** "Obtain an IP address automatically" vs static. */
+  dhcp: boolean;
+  lease: DhcpLease | null;
+  /** True while on a 169.254.x.x address because DHCP got no answer. */
+  apipa: boolean;
+  /** DNS server when static (DHCP-assigned DNS comes from the lease). */
+  dnsServer: Ipv4 | null;
+  /** Windows DNS resolver cache: name -> address and when it expires (sim ms). */
+  dnsCache: Record<string, { ip: Ipv4; expires: number }>;
+}
+
+export interface DhcpScope {
+  network: Ipv4;
+  prefix: number;
+  start: Ipv4;
+  end: Ipv4;
+  gateway: Ipv4;
+  dns: Ipv4;
+  /** MAC -> fixed address. */
+  reservations: Record<string, Ipv4>;
+  /** MAC -> address currently handed out. */
+  leases: Record<string, Ipv4>;
+}
+
+export interface DhcpServer {
+  scopes: DhcpScope[];
+}
 
 export type LinkStatus = 'up' | 'down' | 'admin-down';
 

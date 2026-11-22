@@ -109,6 +109,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     }
     if (!sp) {
       lines.push(ifc.ip ? ` ip address ${formatIp(ifc.ip.address)} ${formatIp(prefixToMask(ifc.ip.prefix))}` : ' no ip address');
+      for (const h of ifc.helpers ?? []) lines.push(` ip helper-address ${formatIp(h)}`);
     }
     const physical = device.hardware[ifc.name] !== undefined;
     if (physical) {

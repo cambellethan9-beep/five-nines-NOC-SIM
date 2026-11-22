@@ -6,6 +6,8 @@ import { formatIp, parseIp, prefixToMask } from './ip';
 import type { Network } from './network';
 import { RemoteClient, type Proto } from './remote';
 import { ping, traceroute } from './routing';
+import { dhcpRelease, dhcpRequest, nicOf } from './dhcp';
+import { DOMAIN, dnsServerOf, flushDns, fqdn, queryServer, resolve } from './dns';
 
 export interface ConsoleSession {
   promptText(): string;
@@ -94,7 +96,10 @@ export class HostShell implements ConsoleSession {
       case '':
         break;
       case 'ipconfig':
-        this.ipconfig(out, args[0]?.toLowerCase() === '/all');
+        this.ipconfig(args, result);
+        break;
+      case 'nslookup':
+        this.nslookup(args[0], result);
         break;
       case 'ping':
         this.ping(args[0], result);
@@ -114,9 +119,10 @@ export class HostShell implements ConsoleSession {
       case 'help':
         out.push(
           'Supported commands:',
-          '  ipconfig [/all]',
-          '  ping <address>',
-          '  tracert <address>',
+          '  ipconfig [/all | /release | /renew | /displaydns | /flushdns]',
+          '  nslookup <name>',
+          '  ping <address or name>',
+          '  tracert <address or name>',
           '  ssh [user@]<address> [-p <port>] [-l <user>]',
           '  telnet <address> [port]',
           '  whoami',
@@ -185,36 +191,168 @@ export class HostShell implements ConsoleSession {
     if (!client.done) this.client = client;
   }
 
-  private ipconfig(out: string[], all: boolean): void {
+  private ipconfig(args: string[], result: CliResult): void {
+    const out = result.output;
+    const flag = (args[0] ?? '').toLowerCase();
     const device = this.net.device(this.deviceId);
+    const hn = device.hostNet;
+    const adapterHidden = !!device.nic && (device.nic.driver === 'missing' || device.nic.disabled);
     out.push('', 'Windows IP Configuration', '');
-    // Without a driver Windows doesn't know the adapter exists; disabled adapters are hidden too.
-    if (device.nic && (device.nic.driver === 'missing' || device.nic.disabled)) return;
-    for (const ifc of Object.values(device.running.interfaces)) {
-      const up = this.net.isUp(device.id, ifc.name);
-      out.push(`Ethernet adapter Ethernet:`, '');
-      if (!up) {
-        out.push('   Media State . . . . . . . . . . . : Media disconnected', '');
-        continue;
-      }
-      if (all) out.push(`   Physical Address. . . . . . . . . : ${device.hardware[ifc.name].mac.replace(/\./g, '').replace(/(..)(?!$)/g, '$1-').toUpperCase()}`);
-      if (ifc.ip) {
-        out.push(`   IPv4 Address. . . . . . . . . . . : ${formatIp(ifc.ip.address)}`);
-        out.push(`   Subnet Mask . . . . . . . . . . . : ${formatIp(prefixToMask(ifc.ip.prefix))}`);
-      } else {
-        out.push('   Autoconfiguration IPv4 Address. . : 169.254.12.34', '   Subnet Mask . . . . . . . . . . . : 255.255.0.0');
-      }
-      const gw = device.running.defaultGateway;
-      out.push(`   Default Gateway . . . . . . . . . : ${gw === null ? '' : formatIp(gw)}`, '');
+    if (flag === '/flushdns') {
+      flushDns(device);
+      out.push('Successfully flushed the DNS Resolver Cache.', '');
+      return;
     }
+    if (flag === '/displaydns') {
+      const entries = Object.entries(hn?.dnsCache ?? {}).filter(([, e]) => e.expires > this.net.time);
+      if (!entries.length) {
+        out.push('    Could not display the DNS Resolver Cache.', '');
+        return;
+      }
+      for (const [name, e] of entries) {
+        out.push(
+          `    ${name}`,
+          '    ----------------------------------------',
+          `    Record Name . . . . . : ${name}`,
+          '    Record Type . . . . . : 1',
+          `    Time To Live  . . . . : ${Math.floor((e.expires - this.net.time) / 1000)}`,
+          '    Data Length . . . . . : 4',
+          '    Section . . . . . . . : Answer',
+          `    A (Host) Record . . . : ${formatIp(e.ip)}`,
+          '',
+        );
+      }
+      return;
+    }
+    if (flag === '/release' || flag === '/renew') {
+      if (adapterHidden) {
+        out.push('The operation failed as no adapter is in the state permissible for this operation.', '');
+        return;
+      }
+      if (!hn?.dhcp) {
+        out.push('The operation failed as no adapter is in the state permissible for this operation.', '');
+        return;
+      }
+      if (!this.net.isUp(device.id, nicOf(device))) {
+        out.push('No operation can be performed on Ethernet while it has its media disconnected.', '');
+        return;
+      }
+      if (flag === '/release') {
+        dhcpRelease(this.net, device.id);
+        out.push('Ethernet adapter Ethernet:', '', '   Connection-specific DNS Suffix  . :', '   Default Gateway . . . . . . . . . :', '');
+        return;
+      }
+      const r = dhcpRequest(this.net, device.id);
+      if (!r.ok) {
+        result.delayed = { ms: 4000, output: ['An error occurred while renewing interface Ethernet : unable to contact your DHCP server. Request has timed out.', ''] };
+        return;
+      }
+      result.delayed = { ms: 1200, output: this.adapterLines(false) };
+      return;
+    }
+    if (flag && flag !== '/all') {
+      out.push(`Error: unrecognized or incomplete command line.`, '', 'USAGE:', '    ipconfig [/all | /release | /renew | /displaydns | /flushdns]', '');
+      return;
+    }
+    if (adapterHidden) return;
+    out.push(...this.adapterLines(flag === '/all'));
+  }
+
+  /** The "Ethernet adapter Ethernet:" block of ipconfig. */
+  private adapterLines(all: boolean): string[] {
+    const device = this.net.device(this.deviceId);
+    const hn = device.hostNet;
+    const name = nicOf(device);
+    const ifc = device.running.interfaces[name];
+    const out = ['Ethernet adapter Ethernet:', ''];
+    if (!this.net.isUp(device.id, name)) {
+      out.push('   Media State . . . . . . . . . . . : Media disconnected', `   Connection-specific DNS Suffix  . :${hn?.dhcp ? ' ' + DOMAIN : ''}`, '');
+      return out;
+    }
+    out.push(`   Connection-specific DNS Suffix  . :${hn?.lease ? ' ' + DOMAIN : ''}`);
+    if (all) {
+      const mac = device.hardware[name].mac.replace(/\./g, '').replace(/(..)(?!$)/g, '$1-').toUpperCase();
+      out.push('   Description . . . . . . . . . . . : NetSmart NS-1000 Gigabit Ethernet', `   Physical Address. . . . . . . . . : ${mac}`);
+      out.push(`   DHCP Enabled. . . . . . . . . . . : ${hn?.dhcp ? 'Yes' : 'No'}`, '   Autoconfiguration Enabled . . . . : Yes');
+    }
+    if (ifc.ip) {
+      const label = hn?.apipa ? '   Autoconfiguration IPv4 Address. . : ' : '   IPv4 Address. . . . . . . . . . . : ';
+      out.push(`${label}${formatIp(ifc.ip.address)}${all ? '(Preferred)' : ''}`);
+      out.push(`   Subnet Mask . . . . . . . . . . . : ${formatIp(prefixToMask(ifc.ip.prefix))}`);
+    }
+    if (all && hn?.lease) {
+      const when = (t: number) => this.net.wallClock(t).toUTCString().replace(' GMT', '');
+      out.push(`   Lease Obtained. . . . . . . . . . : ${when(hn.lease.obtainedAt)}`);
+      out.push(`   Lease Expires . . . . . . . . . . : ${when(hn.lease.obtainedAt + 8 * 24 * 3600_000)}`);
+    }
+    const gw = device.running.defaultGateway;
+    out.push(`   Default Gateway . . . . . . . . . : ${gw === null ? '' : formatIp(gw)}`);
+    if (all) {
+      if (hn?.lease) out.push(`   DHCP Server . . . . . . . . . . . : ${formatIp(hn.lease.server)}`);
+      const dns = dnsServerOf(device);
+      out.push(`   DNS Servers . . . . . . . . . . . : ${dns === null ? '' : formatIp(dns)}`);
+    }
+    out.push('');
+    return out;
+  }
+
+  /** nslookup asks the DNS server directly, ignoring the local cache. */
+  private nslookup(name: string | undefined, result: CliResult): void {
+    const out = result.output;
+    if (!name) {
+      out.push('Usage: nslookup <name>', '');
+      return;
+    }
+    const device = this.net.device(this.deviceId);
+    const server = dnsServerOf(device);
+    if (server === null) {
+      out.push('*** Default servers are not available', '');
+      return;
+    }
+    const serverName = this.serverName(server);
+    const answer = queryServer(this.net, this.deviceId, name);
+    if (!answer.ok && answer.reason === 'timeout') {
+      result.delayed = {
+        ms: 2500,
+        output: ['DNS request timed out.', '    timeout was 2 seconds.', 'Server:  UnKnown', `Address:  ${formatIp(server)}`, '', `*** Request to UnKnown timed-out`, ''],
+      };
+      return;
+    }
+    out.push(`Server:  ${serverName}`, `Address:  ${formatIp(server)}`, '');
+    if (!answer.ok) {
+      out.push(`*** ${serverName} can't find ${fqdn(name)}: Non-existent domain`, '');
+      return;
+    }
+    out.push(`Name:    ${fqdn(name)}`, `Address:  ${formatIp(answer.ip)}`, '');
+  }
+
+  private serverName(server: number): string {
+    for (const d of this.net.devices.values()) {
+      if (!d.dnsZone) continue;
+      const hit = Object.entries(d.dnsZone).find(([n, ip]) => ip === server && n.startsWith('cr-'));
+      if (hit) return hit[0];
+    }
+    return 'UnKnown';
+  }
+
+  /** ping/tracert accept names; they go through the resolver cache like any app. */
+  private lookup(target: string | undefined): { ip: number; label: string } | { error: string } {
+    if (!target) return { error: 'missing' };
+    const ip = parseIp(target);
+    if (ip !== null) return { ip, label: target };
+    const r = resolve(this.net, this.deviceId, target);
+    if (!r.ok) return { error: target };
+    return { ip: r.ip, label: `${fqdn(target)} [${formatIp(r.ip)}]` };
   }
 
   private ping(target: string | undefined, result: CliResult): void {
-    const dest = target ? parseIp(target) : null;
-    if (dest === null) {
+    const found = this.lookup(target);
+    if ('error' in found) {
       result.output.push(`Ping request could not find host ${target ?? ''}. Please check the name and try again.`, '');
       return;
     }
+    const dest = found.ip;
+    const shown = formatIp(dest);
     const r = ping(this.net, this.deviceId, dest, 4);
     const responder = r.destDevice ? this.net.device(r.destDevice) : null;
     const baseTtl = responder && (responder.kind === 'pc' || responder.kind === 'server') ? 128 : 255;
@@ -222,12 +360,12 @@ export class HostShell implements ConsoleSession {
     const lines: string[] = [];
     let rtt = 0;
     for (const mark of r.marks) {
-      if (mark === '!') lines.push(`Reply from ${target}: bytes=32 time=${r.rttMs[rtt++]}ms TTL=${baseTtl - r.hops}`);
-      else if (mark === 'U') lines.push(`Reply from ${gw === null ? target : formatIp(gw)}: Destination host unreachable.`);
+      if (mark === '!') lines.push(`Reply from ${shown}: bytes=32 time=${r.rttMs[rtt++]}ms TTL=${baseTtl - r.hops}`);
+      else if (mark === 'U') lines.push(`Reply from ${gw === null ? shown : formatIp(gw)}: Destination host unreachable.`);
       else lines.push('Request timed out.');
     }
     const received = r.successes;
-    lines.push('', `Ping statistics for ${target}:`);
+    lines.push('', `Ping statistics for ${shown}:`);
     lines.push(`    Packets: Sent = 4, Received = ${received}, Lost = ${4 - received} (${(4 - received) * 25}% loss),`);
     if (received) {
       const min = Math.min(...r.rttMs);
@@ -236,19 +374,20 @@ export class HostShell implements ConsoleSession {
       lines.push('Approximate round trip times in milli-seconds:', `    Minimum = ${min}ms, Maximum = ${max}ms, Average = ${avg}ms`);
     }
     lines.push('');
-    result.output.push('', `Pinging ${target} with 32 bytes of data:`);
+    result.output.push('', `Pinging ${found.label} with 32 bytes of data:`);
     const timeouts = [...r.marks].filter((m) => m !== '!').length;
     result.delayed = { ms: 400 + timeouts * 1000, output: lines };
   }
 
   private tracert(target: string | undefined, result: CliResult): void {
-    const dest = target ? parseIp(target) : null;
-    if (dest === null) {
+    const found = this.lookup(target);
+    if ('error' in found) {
       result.output.push(`Unable to resolve target system name ${target ?? ''}.`, '');
       return;
     }
+    const dest = found.ip;
     const hops = traceroute(this.net, this.deviceId, dest);
-    result.output.push('', `Tracing route to ${target} over a maximum of 30 hops:`, '');
+    result.output.push('', `Tracing route to ${found.label} over a maximum of 30 hops:`, '');
     const lines = hops.map((h) => {
       const n = String(h.ttl).padStart(3);
       if (h.address === null) return `${n}     *        *        *     Request timed out.`;

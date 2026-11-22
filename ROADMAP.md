@@ -103,6 +103,9 @@ This keeps the game fast and deterministic and is accurate enough for CCNA-level
       harder ones back), Owen Price (Tier 2, 2 years; 35% credit, explains fixes, random facts, one hint per ticket in
       chat), Gloria Haines (NOC Manager, 10 years; 25% credit, solves anything, penalty for routine tickets). They really
       fix the network; upward-only escalation by rank (none left at NOC Manager)
+- [x] **Desktop network settings:** IPv4 Properties panel (DHCP or static IP, mask, gateway, DNS) with Windows-style validation
+- [x] **Four more tickets:** APIPA after a blip (trivial), wrong static gateway (easy), stale DNS cache (easy),
+      `ip helper-address` removed with APIPA spreading as PCs wake (moderate). 18 ticket types total
 - [x] **Router-on-a-stick and ISL:** spare CR-CORE1 Fa0/23 to CR-RTR1 Gi0/2 cable (in the docs) makes ROAS possible;
       `encapsulation isl` on router subinterfaces and `switchport trunk encapsulation isl|negotiate` on L3 switches;
       ISL and dot1Q ends don't interoperate
@@ -163,8 +166,10 @@ error messages, the faults it can cause, and ticket templates that use it.
   1. [ ] Output filters: `| include`, `| exclude`, `| section`, `| begin` (cheap, used constantly)
   2. [ ] ACLs: standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
   3. [ ] NAT/PAT: inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
-  4. [ ] DHCP: IOS DHCP server, pools, exclusions, `ip helper-address`; PCs become DHCP clients (169.254.x.x on failure)
-  5. [ ] DNS: `ip name-server`, `ip host`, name resolution on PCs ("websites won't load but 8.8.8.8 works")
+  4. [ ] DHCP: IOS DHCP server, pools, exclusions. *Done early:* staff PCs are DHCP clients of CR-DC01 (reservations),
+         `ip helper-address` relay, APIPA on failure, `ipconfig /release /renew /all`, renew on link-up
+  5. [ ] DNS: `ip name-server`, `ip host` on IOS. *Done early:* PC resolver with cache, CR-DC01 zone, `nslookup`,
+         ping/tracert by name, `ipconfig /displaydns /flushdns`, LedgerWorks resolved by name
   6. [ ] Syslog, NTP and SNMP: `logging host`/`trap`, `service timestamps`, NTP client/server, SNMP v2c/v3; devices only
          appear in Logs and Monitor once configured
   7. [ ] OSPFv2: single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
@@ -317,6 +322,9 @@ error messages, the faults it can cause, and ticket templates that use it.
 47c (inherited docs at new sites), 50a (predecessor runbooks wrong from day one), 52a (policy updates arrive as emails)
 
 ## Open questions
+- **Promotion benchmarks (owner asked to be reminded):** what it takes to move from Tier 1 to Tier 2 and beyond, e.g. a
+  number of shifts meeting both SLA targets, a minimum score, tickets resolved without escalation, no audit failures.
+  Owner's reference point: first shift about -600, second shift about +300 while meeting the 90% uptime target
 - Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?

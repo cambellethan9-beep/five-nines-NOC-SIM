@@ -4,12 +4,15 @@ import type { Office } from '../content/office';
 import { parseIp } from '../sim/ip';
 import type { Network } from '../sim/network';
 import { canReach } from '../sim/routing';
+import { resolve } from '../sim/dns';
 
 export interface Service {
   id: string;
   name: string;
   /** Address a user's PC must reach; printing depends on the user's floor. */
   target: (net: Network, pcId: string) => string;
+  /** Apps that connect by name go through the PC's DNS resolver (and its cache). */
+  byName?: string;
 }
 
 function floorPrinter(net: Network, pcId: string): string {
@@ -20,7 +23,7 @@ function floorPrinter(net: Network, pcId: string): string {
 export const SERVICES: Service[] = [
   { id: 'internet', name: 'Internet', target: () => '8.8.8.8' },
   { id: 'files', name: 'File server (S:)', target: () => '10.10.20.11' },
-  { id: 'ledger', name: 'LedgerWorks', target: () => '10.10.20.12' },
+  { id: 'ledger', name: 'LedgerWorks', target: () => '10.10.20.12', byName: 'ledgerworks' },
   { id: 'dns', name: 'Domain / DNS', target: () => '10.10.20.10' },
   { id: 'print', name: 'Printing', target: floorPrinter },
 ];
@@ -50,7 +53,14 @@ export function serviceHealth(net: Network, office: Office): ServiceHealth {
     present++;
     let broken = false;
     for (const s of SERVICES) {
-      if (!canReach(net, pc.id, parseIp(s.target(net, pc.id))!)) {
+      let ok: boolean;
+      if (s.byName && pc.hostNet) {
+        const r = resolve(net, pc.id, s.byName);
+        ok = r.ok && canReach(net, pc.id, r.ip);
+      } else {
+        ok = canReach(net, pc.id, parseIp(s.target(net, pc.id))!);
+      }
+      if (!ok) {
         down[s.id]++;
         pairs++;
         broken = true;

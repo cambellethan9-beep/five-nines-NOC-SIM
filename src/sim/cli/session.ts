@@ -797,6 +797,19 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
     }));
   }
   t.add('no ip address', HI, each((_c, ifc) => void (ifc.ip = null)));
+  if (mode !== 'range') {
+    t.add('ip helper-address <ip:addr>', { ...HI, 'helper-address': 'Specify a destination address for UDP broadcasts', addr: 'IP destination address' }, each((_c, ifc, a) => {
+      if (ifc.switchport) return '% IP addresses may not be configured on L2 links.';
+      const ip = parseIp(a.addr as string)!;
+      const list = (ifc.helpers ??= []);
+      if (!list.includes(ip)) list.push(ip);
+    }));
+    t.add('no ip helper-address', HI, each((_c, ifc) => void (ifc.helpers = [])));
+    t.add('no ip helper-address <ip:addr>', HI, each((_c, ifc, a) => {
+      const ip = parseIp(a.addr as string)!;
+      ifc.helpers = (ifc.helpers ?? []).filter((h) => h !== ip);
+    }));
+  }
 
   if (mode === 'subif') {
     t.add('encapsulation dot1Q <number:id:1-4094>', HI, each((_c, ifc, a) => void (ifc.encapsulation = { vlan: a.id as number, native: false })));

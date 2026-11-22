@@ -38,15 +38,16 @@ of the CCNA core list in the order written there.
   Owen gives one `draft.hint` per ticket in chat. Every ticket template needs `explain` and `hint`.
 
 ## Open questions (see the end of ROADMAP.md)
-Downtime drain scale; whether the 10× speed button ships (it inflates healthy-network income); release timing.
+**Remind the owner to decide promotion benchmarks** (they asked to be reminded). Also: downtime drain scale; whether the
+10× speed button ships (it inflates healthy-network income); release timing.
 
 ## Code layout
 | Path | What |
 |---|---|
-| `src/sim/` | Engine, no UI: devices, L1/L2/L3 state (`network.ts`), routing/ping (`routing.ts`), IOS output (`render.ts`), SSH (`remote.ts`), PC prompt (`host.ts`), traffic, background noise |
+| `src/sim/` | Engine, no UI: devices, L1/L2/L3 state (`network.ts`), routing/ping (`routing.ts`), IOS output (`render.ts`), SSH (`remote.ts`), PC prompt (`host.ts`), DHCP + APIPA (`dhcp.ts`), DNS resolver/cache (`dns.ts`), traffic, background noise |
 | `src/sim/cli/` | IOS command parser (`parser.ts`) and console session with all commands (`session.ts`) |
 | `src/content/` | Cedar Ridge Accounting office (`office.ts`), predecessor docs (`docs.ts`), Phase 0 demo network (tests only) |
-| `src/game/` | Game state (`game.ts`), ticket queue, 14 ticket templates (`templates.ts`, plan/build so they save), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
+| `src/game/` | Game state (`game.ts`), ticket queue, 18 ticket templates (`templates.ts`, plan/build so they save), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
 | `src/ui/` | React views: Tickets, Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, terminal, intro |
 | `tests/` | Vitest; tests drive the CLI like a player. Keep all tests passing |
 

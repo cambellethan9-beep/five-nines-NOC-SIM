@@ -11,6 +11,8 @@
 import { createDevice, DEFAULT_ADMIN_USER, defaultInterfaceConfig } from '../sim/devices';
 import type { HostOptions } from '../sim/host';
 import { maskToPrefix, parseIp } from '../sim/ip';
+import { dhcpRequest } from '../sim/dhcp';
+import { DOMAIN } from '../sim/dns';
 import { Network } from '../sim/network';
 import type { Device, StaticRoute } from '../sim/types';
 
@@ -68,7 +70,7 @@ export interface ServerInfo {
 }
 
 export const SERVERS: ServerInfo[] = [
-  { id: 'dc01', hostname: 'CR-DC01', ip: '10.10.20.10', role: 'Domain controller, DNS' },
+  { id: 'dc01', hostname: 'CR-DC01', ip: '10.10.20.10', role: 'Domain controller, DNS, DHCP' },
   { id: 'fs01', hostname: 'CR-FS01', ip: '10.10.20.11', role: 'File server (client files, S: drive)' },
   { id: 'app01', hostname: 'CR-APP01', ip: '10.10.20.12', role: 'LedgerWorks practice management' },
 ];
@@ -292,6 +294,42 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   net.connect('noc', nic(noc), 'core1', 'FastEthernet0/10');
 
   for (const id of ['rtr1', 'core1', 'acc1', 'acc2']) inheritedSsh(net.device(id), net.rng.int(1000, 9999));
+
+  // --- DHCP and DNS on CR-DC01; staff PCs get reserved addresses, relayed by CR-CORE1 -------
+  const dc = net.device('dc01');
+  const staffPcs = people.map((p) => net.device(p.pcId));
+  dc.dhcpServer = {
+    scopes: [
+      {
+        network: parseIp('10.10.10.0')!,
+        prefix: 24,
+        start: parseIp('10.10.10.150')!,
+        end: parseIp('10.10.10.199')!,
+        gateway: parseIp('10.10.10.1')!,
+        dns: parseIp('10.10.20.10')!,
+        reservations: Object.fromEntries(staffPcs.map((pc) => [pc.hardware[nic(pc)].mac, pc.running.interfaces[nic(pc)].ip!.address])),
+        leases: {},
+      },
+    ],
+  };
+  const zone: Record<string, string> = {
+    'cr-dc01': '10.10.20.10',
+    'cr-fs01': '10.10.20.11',
+    'cr-app01': '10.10.20.12',
+    ledgerworks: '10.10.20.12',
+    'cr-prn1': '10.10.30.21',
+    'cr-prn2': '10.10.30.22',
+  };
+  dc.dnsZone = Object.fromEntries(Object.entries(zone).map(([n, a]) => [`${n}.${DOMAIN}`, parseIp(a)!]));
+  dc.dnsZone['www.example.com'] = parseIp('8.8.8.8')!;
+  net.device('core1').running.interfaces['Vlan10'].helpers = [parseIp('10.10.20.10')!];
+  net.commit({ silent: true });
+  for (const pc of staffPcs) {
+    pc.hostNet = { dhcp: true, lease: null, apipa: false, dnsServer: null, dnsCache: {} };
+    dhcpRequest(net, pc.id);
+  }
+  // The NOC PC is static, pointed at the same DNS server.
+  noc.hostNet = { dhcp: false, lease: null, apipa: false, dnsServer: parseIp('10.10.20.10'), dnsCache: {} };
 
   // --- Tutorial incident: Priya's switchport was left shut down ---------------------------
   const tutorialPort = 'FastEthernet0/7';

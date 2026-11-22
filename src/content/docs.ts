@@ -135,7 +135,7 @@ export function predecessorDocs(office: Office): Doc[] {
       author: PREDECESSOR,
       updated: 'Oct 30',
       blocks: [
-        { p: 'Which desk plugs into which switch port. Desk numbers are floor-desk (1-07 is 1st floor, desk 7). All staff PCs are in VLAN 10 with static IPs.' },
+        { p: 'Which desk plugs into which switch port. Desk numbers are floor-desk (1-07 is 1st floor, desk 7). All staff PCs are in VLAN 10 and get their address from DHCP on CR-DC01 (reserved per PC, so the IPs below don\'t change). CR-CORE1 relays DHCP for VLAN 10 with `ip helper-address 10.10.20.10`.' },
         { table: { head: ['Desk', 'Name', 'Dept', 'PC', 'IP', 'Switch', 'Port', 'VLAN'], rows: portRows } },
         { note: 'People move desks during busy season. If someone tells you they moved, this table is probably wrong for them.' },
       ],

@@ -4,6 +4,7 @@
 import { predecessorDocs, type Doc } from '../content/docs';
 import { buildOffice, ZONES, type Office } from '../content/office';
 import { Ambient } from '../sim/ambient';
+import { DhcpWatcher } from '../sim/dhcp';
 import { CliSession } from '../sim/cli/session';
 import { HostShell, type ConsoleSession } from '../sim/host';
 import { parseIp } from '../sim/ip';
@@ -99,6 +100,8 @@ export class Game {
   /** Sim time when the current shift began (the office runs a while before you arrive). */
   shiftStart = Infinity;
   readonly queue: TicketQueue;
+  /** PCs ask DHCP for an address whenever their link comes up. */
+  readonly dhcp = new DhcpWatcher();
   readonly chat: Chat;
   /** Latest service check. */
   health: ServiceHealth = { usersPresent: 0, down: {}, brokenPairs: 0, affectedUsers: 0, perUser: {} };
@@ -150,6 +153,7 @@ export class Game {
       if (d.managed && !isHostKind(d.kind)) this.net.log(d.id, '%SYS-5-RESTART: System restarted --');
     }
     // Let the office run for a while so logs and graphs have history when the shift starts.
+    this.dhcp.baseline(this.net);
     for (let t = 0; t < PREROLL_MS; t += SAMPLE_MS) this.tick(SAMPLE_MS);
     this.beginShift();
     this.queue.openTutorial();
@@ -228,6 +232,7 @@ export class Game {
     this.queue.importState(save.queue);
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
+    this.dhcp.baseline(this.net);
     this.health = serviceHealth(this.net, this.office);
   }
 
@@ -271,6 +276,7 @@ export class Game {
       left -= step;
       this.net.advance(step);
       this.ambient.update();
+      this.dhcp.update(this.net);
       if (this.started) {
         this.queue.update();
         this.checkServices(step);
