@@ -88,6 +88,10 @@ export interface QueueState {
   lifetimePoints: number;
   rankIndex: number;
   shift: number;
+  /** Shifts in a row that met the uptime target. */
+  streak?: number;
+  /** Shifts in a row that reached the promotion threshold for the current rank. */
+  qualifyingShifts?: number;
 }
 
 export interface ScoreEvent {
@@ -118,6 +122,8 @@ export class TicketQueue {
   lifetimePoints = 0;
   rankIndex = 0;
   shift = 1;
+  streak = 0;
+  qualifyingShifts = 0;
 
   constructor(
     private readonly net: Network,
@@ -253,6 +259,8 @@ export class TicketQueue {
       lifetimePoints: this.lifetimePoints,
       rankIndex: this.rankIndex,
       shift: this.shift,
+      streak: this.streak,
+      qualifyingShifts: this.qualifyingShifts,
     };
   }
 
@@ -268,8 +276,10 @@ export class TicketQueue {
     s.used.forEach((u) => this.used.add(u));
     this.events.splice(0, this.events.length, ...s.events);
     this.lifetimePoints = s.lifetimePoints;
-    this.rankIndex = s.rankIndex;
+    this.rankIndex = Math.min(s.rankIndex, RANKS.length - 1);
     this.shift = s.shift;
+    this.streak = s.streak ?? 0;
+    this.qualifyingShifts = s.qualifyingShifts ?? 0;
   }
 
   /** Called when a shift starts: the next new ticket arrives a few minutes in. */

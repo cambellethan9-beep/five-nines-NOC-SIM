@@ -103,6 +103,14 @@ This keeps the game fast and deterministic and is accurate enough for CCNA-level
       harder ones back), Owen Price (Tier 2, 2 years; 35% credit, explains fixes, random facts, one hint per ticket in
       chat), Gloria Haines (NOC Manager, 10 years; 25% credit, solves anything, penalty for routine tickets). They really
       fix the network; upward-only escalation by rank (none left at NOC Manager)
+- [x] **Rank ladder and promotions:** Tier 1 → Tier 2 → Network Engineer (NOC Tier 3) → NOC Supervisor → NOC Manager.
+      Promotion = shift score ≥ 500 / 1,000 / 2,000 / 5,000 for 5 / 10 / 20 / 20 shifts **in a row** (saves in between
+      are fine; one shift under the bar resets the count to 0). Uptime targets 1 to 5 nines; ticket limits 1/2/3/4/∞.
+      Ranks above Manager will use other prerequisites (facilities managed, etc.)
+- [x] **Reliability streak:** each shift in a row meeting the uptime target pays 50 × streak (counts up to 10) × the
+      nines multiplier (1 nine ×1.1 … 5 nines ×1.5). Counts toward promotion. Missing the target halves the streak
+- [ ] **Tier 3 unlocks network changes:** from Network Engineer on you can change the topology itself (add, move and
+      replace routers and switches), not only configure what's there
 - [x] **Editable inherited docs:** Edit any reference doc or playbook in place (tables included), saved with the game,
       with Revert to original. Notes also support tables, numbered steps and callouts
 - [x] **Desktop network settings:** IPv4 Properties panel (DHCP or static IP, mask, gateway, DNS) with Windows-style validation
@@ -324,11 +332,10 @@ error messages, the faults it can cause, and ticket templates that use it.
 47c (inherited docs at new sites), 50a (predecessor runbooks wrong from day one), 52a (policy updates arrive as emails)
 
 ## Open questions
-- **Promotion benchmarks (direction agreed, details being confirmed):** new ladder Tier 1 → Tier 2 → Tier 3 → NOC
-  Supervisor → NOC Manager; ranks above Manager need other prerequisites (facilities managed, etc.).
-  Owner's numbers: Tier 2 = 500 points a shift over 5 shifts, Tier 3 = 1,000 over 10, NOC Supervisor = 2,000 over 20,
-  NOC Manager = 50,000 over 20. Also agreed in principle: a **reliability streak**: consecutive shifts meeting the
-  uptime SLA pay more each shift (the 5th in a row is worth more than the 1st), growing faster at higher SLA targets
+- **Menial work at high rank (owner wants it; details to approve):** at senior ranks, fixing routine tickets yourself
+  costs a few points, to push delegation and automation (hired techs, runbooks, scripts) so you spend your time on the
+  hard tickets. Needs the Phase 4 team first so there is someone to delegate to
+- Should missing the uptime target halve the reliability streak (built that way) or reset it to 0?
 - Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?

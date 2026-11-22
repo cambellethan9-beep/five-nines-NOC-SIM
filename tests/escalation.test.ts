@@ -24,7 +24,7 @@ describe('escalation', () => {
     expect(game.queue.escalationTargets().map((c) => c.id)).toEqual(['jordan', 'owen', 'gloria']);
     game.queue.rankIndex = 1; // Tier 2: only Gloria is above you
     expect(game.queue.escalationTargets().map((c) => c.id)).toEqual(['gloria']);
-    game.queue.rankIndex = 3; // NOC Manager: nobody left
+    game.queue.rankIndex = 4; // NOC Manager: nobody left
     expect(game.queue.escalationTargets()).toEqual([]);
     expect(game.queue.escalate(game.queue.tickets[0].id, 'gloria')).toMatch(/doesn't outrank you/);
   });

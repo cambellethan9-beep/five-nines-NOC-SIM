@@ -15,7 +15,7 @@ import { deviceCpu, interfaceRates } from '../sim/traffic';
 import { isHostKind, type Device } from '../sim/types';
 import { Chat, type ChatState } from './chat';
 import { TicketQueue, type QueueState, type Ticket } from './queue';
-import { RULES } from './scoring';
+import { RANKS, RULES, streakAfterMiss, streakBonus } from './scoring';
 import { serviceHealth, SERVICES, type ServiceHealth } from './services';
 
 /** Walking to a different console costs this much game time. */
@@ -78,6 +78,11 @@ export interface ShiftReport {
   /** Points earned while the network was healthy. */
   healthy: number;
   lifetimePoints: number;
+  /** Reliability streak after this shift, and what it paid (0 when the uptime target was missed). */
+  streak?: number;
+  streakBonus?: number;
+  /** Promotion progress after this shift. */
+  promotion?: { pointsPerShift: number; shifts: number; done: number; qualified: boolean; promotedTo?: string };
 }
 
 export interface Sample {
@@ -377,9 +382,33 @@ export class Game {
     this.postAccrued();
     const stats = this.shiftStats();
     const met = stats.slaCompliance >= stats.slaTarget && stats.availability >= stats.uptimeTarget;
+    const q = this.queue;
+    const rank = q.rank;
     const bonus = met ? RULES.shiftBonus : -RULES.shiftPenalty;
-    this.queue.addPoints(met ? 'Shift targets met' : 'Shift targets missed', bonus);
-    this.report = { ...stats, points: stats.points + bonus, bonus, lifetimePoints: this.queue.lifetimePoints };
+    q.addPoints(met ? 'Shift targets met' : 'Shift targets missed', bonus);
+    // Reliability streak: uptime target met shift after shift pays more each time.
+    let reliability = 0;
+    if (stats.availability >= stats.uptimeTarget) {
+      q.streak++;
+      reliability = streakBonus(q.streak, stats.uptimeTarget);
+      q.addPoints(`Reliability streak (${q.streak} in a row)`, reliability);
+    } else {
+      q.streak = streakAfterMiss(q.streak);
+    }
+    const points = stats.points + bonus + reliability;
+    // Promotion: the threshold every shift, in a row. Miss once and the count starts over.
+    let promotion: ShiftReport['promotion'];
+    if (rank.promotion) {
+      const qualified = points >= rank.promotion.pointsPerShift;
+      q.qualifyingShifts = qualified ? q.qualifyingShifts + 1 : 0;
+      promotion = { ...rank.promotion, done: q.qualifyingShifts, qualified };
+      if (q.qualifyingShifts >= rank.promotion.shifts && q.rankIndex < RANKS.length - 1) {
+        q.rankIndex++;
+        q.qualifyingShifts = 0;
+        promotion.promotedTo = q.rank.name;
+      }
+    }
+    this.report = { ...stats, points, bonus, lifetimePoints: q.lifetimePoints, streak: q.streak, streakBonus: reliability, promotion };
   }
 
   /** Starts the next shift on the same network. Open tickets carry over. */

@@ -57,6 +57,12 @@ export function ShiftReportDialog({ report, onNext }: { report: ShiftReport; onN
               <td />
               <td />
             </tr>
+            <tr>
+              <td>Reliability streak</td>
+              <td className={`num ${report.streakBonus ? 'ok-text' : ''}`}>{report.streakBonus ? `+${report.streakBonus}` : '0'}</td>
+              <td className="num muted">{report.streak ?? 0} in a row</td>
+              <td />
+            </tr>
             <tr className="score-total">
               <td>Shift score</td>
               <td className="num">{report.points}</td>
@@ -65,6 +71,20 @@ export function ShiftReportDialog({ report, onNext }: { report: ShiftReport; onN
             </tr>
           </tbody>
         </table>
+        {report.promotion &&
+          (report.promotion.promotedTo ? (
+            <p className="promo promo-up">
+              Promoted to <strong>{report.promotion.promotedTo}</strong>. {report.promotion.shifts} shifts in a row at {report.promotion.pointsPerShift}+ points.
+            </p>
+          ) : report.promotion.qualified ? (
+            <p className="promo">
+              Promotion: {report.promotion.done} of {report.promotion.shifts} shifts in a row at {report.promotion.pointsPerShift}+ points.
+            </p>
+          ) : (
+            <p className="promo promo-reset">
+              Under {report.promotion.pointsPerShift} points this shift. Promotion count is back to 0 of {report.promotion.shifts}.
+            </p>
+          ))}
         <p className="modal-note">The network carries over to the next shift as you left it, open tickets included. Anything unsaved is still unsaved.</p>
         <button className="primary" onClick={onNext} autoFocus>
           Start next shift

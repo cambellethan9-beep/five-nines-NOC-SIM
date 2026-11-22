@@ -26,19 +26,23 @@ of the CCNA core list in the order written there.
   deadline → ×0 at double; breach −50% base; missed response −10%; triage ±.
 - **False resolve by rank:** Tier 1 = 0 points and a senior fixes it in 10 min (fix first for half credit); higher ranks
   lose 1% / 2% / 3% of lifetime points; resolving later recovers half.
-- **Tickets in play at once:** Tier 1: 1, Tier 2: 2, Network Engineer: 3, NOC Manager: unlimited; 1.5-4 min breather.
+- **Ranks:** Tier 1 → Tier 2 → Network Engineer (NOC Tier 3) → NOC Supervisor → NOC Manager. Promotion = shift
+  score ≥ 500/1,000/2,000/5,000 for 5/10/20/20 shifts in a row (one miss resets the count to 0). Uptime targets 1-5 nines.
+- **Reliability streak:** uptime target met shift after shift pays 50 × streak (max 10) × (1 + 0.1 × nines); counts
+  toward promotion; a miss halves the streak.
+- **Tickets in play at once:** 1 / 2 / 3 / 4 / unlimited by rank; 1.5-4 min breather.
 - **Healthy-network income:** +1 point every 2 game seconds while nothing is broken and no incident is open.
 - **Downtime drain:** 2 points per affected user per service per minute (scale is an open question).
 - Changing consoles (walking) costs 30 s of game time; SSH from NOC-PC is free. Inherited devices trust the NOC-PC key
   (`ssh nocadmin@<ip>`, no password); default username `nocadmin`.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
 - Recurring incidents are realistic: most tickets should come from a few common problems.
-- **Escalation** (`src/game/coworkers.ts`): Jordan (Tier 1 peer, 50% credit), Owen (Tier 2, 35%), Gloria (NOC Manager,
+- **Escalation** (`src/game/coworkers.ts`): Jordan (Tier 1 peer, 50% credit), Owen (Tier 2, 35%), Gloria (NOC Manager, rank index 4,
   25%, penalty for routine tickets). Upward-only by rank. Coworkers really fix it and explain via `draft.explain`;
   Owen gives one `draft.hint` per ticket in chat. Every ticket template needs `explain` and `hint`.
 
 ## Open questions (see the end of ROADMAP.md)
-**Remind the owner to decide promotion benchmarks** (they asked to be reminded). Also: downtime drain scale; whether the
+Menial-work penalty at high rank (needs the Phase 4 team); halve vs reset the streak on a miss. Also: downtime drain scale; whether the
 10× speed button ships (it inflates healthy-network income); release timing.
 
 ## Code layout

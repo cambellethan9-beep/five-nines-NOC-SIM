@@ -53,7 +53,7 @@ export const COWORKERS: Coworker[] = [
     id: 'gloria',
     name: 'Gloria Haines',
     title: 'NOC Manager',
-    rankIndex: 3,
+    rankIndex: 4,
     tenure: '10 years here',
     minMs: 4 * MIN,
     maxMs: 8 * MIN,

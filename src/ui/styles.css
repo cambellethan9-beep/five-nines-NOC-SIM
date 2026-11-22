@@ -2627,3 +2627,22 @@ kbd {
   white-space: pre;
   overflow-x: auto;
 }
+
+.sc-promo {
+  color: var(--muted);
+  font-size: 12px;
+}
+.promo {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+}
+.promo-up {
+  border-left-color: var(--ok);
+}
+.promo-reset {
+  border-left-color: var(--bad);
+}

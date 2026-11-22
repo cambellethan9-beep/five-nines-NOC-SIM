@@ -339,6 +339,12 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
         <span className="sc-ok">All services up · open ticket</span>
       )}
       <span className="sc-rank">{stats.rankName}</span>
+      {game.queue.rank.promotion && (
+        <span className="sc-promo">
+          Promotion {game.queue.qualifyingShifts}/{game.queue.rank.promotion.shifts} shifts at {game.queue.rank.promotion.pointsPerShift}+
+          {game.queue.streak > 0 && <> · streak {game.queue.streak}</>}
+        </span>
+      )}
     </button>
   );
 }

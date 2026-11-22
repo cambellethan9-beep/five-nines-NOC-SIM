@@ -37,7 +37,7 @@ describe('scoring rules', () => {
   it('false-resolve penalty grows with rank, up to 3% of lifetime points', () => {
     expect(falseResolvePenalty(RANKS[0], 10_000)).toBe(0);
     expect(falseResolvePenalty(RANKS[1], 10_000)).toBe(100);
-    expect(falseResolvePenalty(RANKS[3], 10_000)).toBe(300);
+    expect(falseResolvePenalty(RANKS[4], 10_000)).toBe(300);
   });
 });
 
@@ -103,7 +103,7 @@ describe('ticket queue', () => {
 
   it('NOC Manager false resolve costs 3% of lifetime points; fixing it later recovers half', () => {
     const game = new Game('q');
-    game.queue.rankIndex = 3;
+    game.queue.rankIndex = 4;
     game.queue.lifetimePoints = 10_000;
     const t = game.queue.tickets[0];
     const bad = game.queue.resolve(t.id, '');
@@ -194,7 +194,7 @@ describe('ticket queue', () => {
 
   it('NOC Manager has no limit on simultaneous tickets', () => {
     const game = new Game('stream3');
-    game.queue.rankIndex = 3;
+    game.queue.rankIndex = 4;
     let peak = 0;
     for (let i = 0; i < 50; i++) {
       game.tick(MIN);

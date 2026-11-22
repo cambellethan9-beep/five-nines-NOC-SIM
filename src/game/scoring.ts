@@ -33,6 +33,8 @@ export interface Rank {
   falseResolvePct: number;
   /** How likely each difficulty is when a new ticket is generated. */
   difficultyWeights: Record<Difficulty, number>;
+  /** To be promoted out of this rank: score at least `pointsPerShift` in `shifts` shifts in a row. */
+  promotion?: { pointsPerShift: number; shifts: number };
 }
 
 export const RANKS: Rank[] = [
@@ -43,6 +45,7 @@ export const RANKS: Rank[] = [
     maxOpenTickets: 1,
     falseResolvePct: 0,
     difficultyWeights: { trivial: 35, easy: 35, moderate: 25, hard: 4, expert: 1 },
+    promotion: { pointsPerShift: 500, shifts: 5 },
   },
   {
     name: 'Tier 2 NOC Technician',
@@ -51,18 +54,30 @@ export const RANKS: Rank[] = [
     maxOpenTickets: 2,
     falseResolvePct: 0.01,
     difficultyWeights: { trivial: 20, easy: 30, moderate: 35, hard: 11, expert: 4 },
+    promotion: { pointsPerShift: 1000, shifts: 10 },
   },
   {
-    name: 'Network Engineer',
+    name: 'Network Engineer (NOC Tier 3)',
     uptimeTarget: 0.999,
     slaTarget: 0.95,
     maxOpenTickets: 3,
     falseResolvePct: 0.02,
     difficultyWeights: { trivial: 10, easy: 20, moderate: 35, hard: 25, expert: 10 },
+    promotion: { pointsPerShift: 2000, shifts: 20 },
   },
   {
-    name: 'NOC Manager',
+    name: 'NOC Supervisor',
     uptimeTarget: 0.9999,
+    slaTarget: 0.97,
+    maxOpenTickets: 4,
+    falseResolvePct: 0.025,
+    difficultyWeights: { trivial: 7, easy: 17, moderate: 33, hard: 28, expert: 15 },
+    promotion: { pointsPerShift: 5000, shifts: 20 },
+  },
+  {
+    // Ranks above this will need other prerequisites (facilities managed and so on).
+    name: 'NOC Manager',
+    uptimeTarget: 0.99999,
     slaTarget: 0.98,
     // No limit: by now you're delegating to the techs you've hired.
     maxOpenTickets: Infinity,
@@ -94,7 +109,31 @@ export const RULES = {
   drainPerUserMinute: 2,
   shiftBonus: 100,
   shiftPenalty: 100,
+  /** Reliability streak: each shift in a row that meets the uptime target pays this × the streak... */
+  streakPointsPerShift: 50,
+  /** ...counting at most this many shifts. */
+  streakCap: 10,
 };
+
+/** 0.9 -> 1, 0.99 -> 2, 0.99999 -> 5. */
+export function nines(target: number): number {
+  return Math.max(0, Math.round(-Math.log10(1 - target)));
+}
+
+/** One nine multiplies the streak bonus by 1.1, two by 1.2, five nines by 1.5. */
+export function ninesMultiplier(target: number): number {
+  return 1 + 0.1 * nines(target);
+}
+
+/** The reliability bonus for a shift that extends the streak to `streak`. */
+export function streakBonus(streak: number, uptimeTarget: number): number {
+  return Math.round(RULES.streakPointsPerShift * Math.min(streak, RULES.streakCap) * ninesMultiplier(uptimeTarget));
+}
+
+/** Missing the uptime target halves the streak instead of wiping it. */
+export function streakAfterMiss(streak: number): number {
+  return Math.floor(streak / 2);
+}
 
 /** Speed multiplier for resolving after `elapsed` ms against a deadline of `target` ms. */
 export function speedMultiplier(elapsed: number, target: number): number {
