@@ -92,14 +92,21 @@ describe('senior ranks delegate routine work', () => {
     return { game, t };
   }
 
-  it('a Supervisor fixing a trivial ticket by hand loses a little; a Tier 2 does not', () => {
-    for (const [rank, expected] of [[1, 0], [3, -4], [4, -8]] as const) {
+  it('a Supervisor or Manager fixing a trivial ticket by hand ends up lower than before; a Tier 2 gains', () => {
+    for (const [rank, expected] of [[3, -4], [4, -8]] as const) {
       const { game, t } = seniorGame(rank);
+      game.queue.lifetimePoints = 2500;
       t.draft.fix();
       const r = game.queue.resolve(t.id, 'fixed');
-      const line = r.lines.find((l) => l.label.startsWith('Routine ticket done by hand'));
-      expect(line?.points ?? 0).toBe(expected);
+      expect(r.ok).toBe(true);
+      expect(r.lines.some((l) => l.label.startsWith('No credit'))).toBe(true);
+      expect(game.queue.lifetimePoints).toBe(2500 + expected);
     }
+    const { game, t } = seniorGame(1);
+    game.queue.lifetimePoints = 2500;
+    t.draft.fix();
+    game.queue.resolve(t.id, 'fixed');
+    expect(game.queue.lifetimePoints).toBeGreaterThan(2500);
   });
 
   it('assigning it down to Jordan pays full base points and no penalty', () => {

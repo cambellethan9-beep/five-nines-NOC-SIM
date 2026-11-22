@@ -31,7 +31,8 @@ of the CCNA core list in the order written there.
 - **Points are the core; uptime is informational.** Reliability streak: each shift in a row at or above the rank's
   points bar pays 50 × streak (max 10) × (1 + 0.1 × nines of the uptime target); counts toward promotion; a shift under
   the bar resets it to 0. Shift bonus/penalty depends on tickets in SLA only (downtime still drains points live).
-- **Menial work:** at NOC Supervisor / Manager, resolving a trivial or easy ticket yourself costs 10% / 20% of base;
+- **Menial work:** at NOC Supervisor / Manager, resolving a trivial or easy ticket yourself earns 0 and costs
+  10% / 20% of base (net negative);
   Jordan and Owen can be assigned tickets at those ranks (delegation, full base points, no penalty).
 - **Tickets in play at once:** 1 / 2 / 3 / 4 / unlimited by rank; 1.5-4 min breather.
 - **Healthy-network income:** +1 point every 2 game seconds while nothing is broken and no incident is open.

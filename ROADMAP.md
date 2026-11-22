@@ -285,7 +285,8 @@ error messages, the faults it can cause, and ticket templates that use it.
       picked up and worked automatically by an employee assigned to that runbook. Bad matches and stale runbooks make
       things worse, so they need maintaining
 - [x] **Menial work costs seniors points (first version built):** at NOC Supervisor and NOC Manager, resolving a
-      trivial or easy ticket yourself subtracts 10% / 20% of its base points on top of what it earns. Jordan and Owen
+      trivial or easy ticket yourself earns nothing and costs 10% / 20% of its base points, so your score always ends
+      up lower than before. Jordan and Owen
       now work for you at those ranks: **Assign** a ticket down to them for full base points and no penalty
 - [ ] **Automation over manual work:** the same penalty applies once hired techs and runbook triggers exist; the
       intended play is delegation and automation so you focus on the hard tickets

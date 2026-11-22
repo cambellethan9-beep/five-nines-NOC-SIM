@@ -505,11 +505,6 @@ export class TicketQueue {
         t.escalation = null;
       }
       let lines = resolveScore(this.scoreInput(t));
-      const menial = this.rank.menialPenaltyPct;
-      if (menial > 0 && isMenial(t.difficulty)) {
-        // At senior ranks, routine tickets should go to your team, not take up your time.
-        lines.push({ label: `Routine ticket done by hand (${this.rank.name})`, points: -Math.round(BASE_POINTS[t.difficulty] * menial) });
-      }
       if (t.falseResolves > 0) {
         // Coming back to it later still pays, just not as much as getting it right first.
         const share = RULES.revisitShare;
@@ -517,6 +512,17 @@ export class TicketQueue {
         lines.unshift({ label: `Resolved on a second attempt (×${share})`, points: 0 });
         const recovered = Math.round(t.penaltyTaken * RULES.revisitRecovery);
         if (recovered > 0) lines.push({ label: 'Recovered part of the false-resolve penalty', points: recovered });
+      }
+      const menial = this.rank.menialPenaltyPct;
+      if (menial > 0 && isMenial(t.difficulty)) {
+        // At senior ranks, routine tickets belong to your team. Doing one yourself earns nothing and costs a little,
+        // so you always end up lower than before. (Penalties already on the ticket, like a breach, still apply.)
+        lines = [
+          { label: `No credit: routine ticket done by hand (${this.rank.name})`, points: 0 },
+          // Keep penalties, and the partial refund of an earlier false-resolve penalty.
+          ...lines.filter((l) => l.points < 0 || l.label.startsWith('Recovered')),
+          { label: 'Time a senior should have spent elsewhere', points: -Math.round(BASE_POINTS[t.difficulty] * menial) },
+        ];
       }
       t.status = 'resolved';
       t.resolvedAt = now;
