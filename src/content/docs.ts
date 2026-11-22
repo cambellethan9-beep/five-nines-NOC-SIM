@@ -135,6 +135,7 @@ export function predecessorDocs(office: Office): Doc[] {
         {
           ul: [
             'The NOC PC (10.10.99.50) runs a TFTP server for config backups. Setting up `archive` on everything is on my list.',
+            'I also downloaded newer NSOS images into the TFTP root ahead of an upgrade I never scheduled. Heads up: the NS-S2900s only have about 30 MB of flash, so two images will not fit.',
             'I set `exec-timeout 0 0` on the router and core because getting kicked out mid-change drove me nuts. The access switches still log you out after 10 idle minutes.',
           ],
         },

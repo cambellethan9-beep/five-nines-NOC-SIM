@@ -31,6 +31,26 @@ export interface AclEntry {
   icmpType?: string;
   established?: boolean;
   log?: boolean;
+  /** `time-range NAME`: the entry only counts while the range is active. */
+  timeRange?: string;
+  /** `reflect NAME [timeout S]`: traffic matching this entry opens the reflexive list NAME for its replies. */
+  reflect?: { name: string; timeout?: number };
+  /** `evaluate NAME`: permits replies to traffic a `reflect NAME` entry let out. */
+  evaluate?: string;
+}
+
+/** `time-range NAME`: periodic and absolute windows, judged by the device's own clock. */
+export interface TimeRange {
+  /** `periodic weekdays 8:00 to 17:00`; `toDay` for spans like `Monday 22:00 to Tuesday 6:00`. */
+  periodic: { days: string[]; from: string; to: string; toDay?: string }[];
+  absolute: { start: string | null; end: string | null } | null;
+}
+
+/** What evaluating an ACL may need besides the packet: the clock and time ranges, and the other ACLs (reflexive). */
+export interface AclEnv {
+  now?: Date;
+  ranges?: Record<string, TimeRange>;
+  acls?: Record<string, Acl>;
 }
 
 export interface Acl {
@@ -154,7 +174,7 @@ function readPort(ts: Tok[], i: number, proto: Proto): { spec?: PortSpec; next: 
 }
 
 /** Parses "permit tcp any host 10.1.1.1 eq 443 log" (text after the sequence number, if any). */
-export function parseEntry(type: AclType, text: string, base = 0): EntryParse {
+export function parseEntry(type: AclType, text: string, base = 0, opts: { named?: boolean } = {}): EntryParse {
   const ts = toks(text, base);
   const fail = (r: { caret: number; incomplete?: boolean }): EntryParse => ({ ok: false, caret: r.caret, incomplete: r.incomplete || r.caret < 0 });
   const action = kw(ts[0]?.t, ['permit', 'deny']) as 'permit' | 'deny' | null;
@@ -207,6 +227,26 @@ export function parseEntry(type: AclType, text: string, base = 0): EntryParse {
     entry.log = true;
     i++;
   }
+  if (ts[i] && type === 'extended' && kw(ts[i].t, ['reflect', 'time-range']) === 'reflect') {
+    if (!opts.named) return { ok: false, caret: ts[i].at };
+    const n = ts[i + 1];
+    if (!n) return { ok: false, caret: -1, incomplete: true };
+    entry.reflect = { name: n.t };
+    i += 2;
+    if (kw(ts[i]?.t, ['timeout']) === 'timeout') {
+      const v = ts[i + 1];
+      if (!v) return { ok: false, caret: -1, incomplete: true };
+      if (!/^\d+$/.test(v.t) || Number(v.t) < 1 || Number(v.t) > 2147483) return { ok: false, caret: v.at };
+      entry.reflect.timeout = Number(v.t);
+      i += 2;
+    }
+  }
+  if (ts[i] && kw(ts[i].t, ['time-range', 'timeout']) === 'time-range') {
+    const n = ts[i + 1];
+    if (!n) return { ok: false, caret: -1, incomplete: true };
+    entry.timeRange = n.t;
+    i += 2;
+  }
   if (ts[i]) return { ok: false, caret: ts[i].at };
   return { ok: true, entry };
 }
@@ -254,12 +294,102 @@ export function entryMatches(type: AclType, e: AclEntry, p: Packet): boolean {
   return true;
 }
 
+const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** "08:00 14 April 2026" -> UTC ms (IOS time-range absolute format: hh:mm day month year). */
+export function parseAbsolute(text: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/.exec(text.trim());
+  if (!m) return null;
+  const mon = MONTHS.indexOf(m[4].slice(0, 3).toLowerCase());
+  if (mon < 0 || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+  return Date.UTC(Number(m[5]), mon, Number(m[3]), Number(m[1]), Number(m[2]));
+}
+
+/** Expands "weekdays", "weekend", "daily" and day names to day indexes (0 = Sunday). */
+export const DAY_WORDS = ['daily', 'weekdays', 'weekend', ...DAY_NAMES];
+
+export function dayIndexes(days: string[]): number[] {
+  const out = new Set<number>();
+  for (const d of days) {
+    const k = d.toLowerCase();
+    if (k === 'daily') [0, 1, 2, 3, 4, 5, 6].forEach((x) => out.add(x));
+    else if (k === 'weekdays') [1, 2, 3, 4, 5].forEach((x) => out.add(x));
+    else if (k === 'weekend') [0, 6].forEach((x) => out.add(x));
+    else if (DAY_NAMES.includes(k)) out.add(DAY_NAMES.indexOf(k));
+  }
+  return [...out];
+}
+
+/** Is the time range active at this moment? A range that doesn't exist is treated as active, like IOS. */
+export function rangeActive(r: TimeRange | undefined, now: Date): boolean {
+  if (!r) return true;
+  const t = now.getTime();
+  if (r.absolute) {
+    const start = r.absolute.start ? parseAbsolute(r.absolute.start) : null;
+    const end = r.absolute.end ? parseAbsolute(r.absolute.end) : null;
+    if (start !== null && t < start) return false;
+    if (end !== null && t > end) return false;
+  }
+  if (!r.periodic.length) return true;
+  const day = now.getUTCDay();
+  const min = now.getUTCHours() * 60 + now.getUTCMinutes();
+  return r.periodic.some((p) => {
+    const from = minutesOf(p.from);
+    const to = minutesOf(p.to);
+    const days = dayIndexes(p.days);
+    if (p.toDay) {
+      const d0 = DAY_NAMES.indexOf(p.days[0].toLowerCase());
+      const d1 = DAY_NAMES.indexOf(p.toDay.toLowerCase());
+      const now7 = day * 1440 + min;
+      const a = d0 * 1440 + from;
+      let b = d1 * 1440 + to;
+      if (b < a) b += 7 * 1440;
+      return (now7 >= a && now7 <= b) || (now7 + 7 * 1440 >= a && now7 + 7 * 1440 <= b);
+    }
+    return days.includes(day) && min >= from && min <= to;
+  });
+}
+
+/** The packet a reply answers: addresses and ports swapped. */
+function reversed(p: Packet): Packet {
+  const icmp = p.icmpType === 'echo-reply' ? 'echo' : p.icmpType;
+  return { proto: p.proto, src: p.dst, dst: p.src, srcPort: p.dstPort, dstPort: p.srcPort, ...(icmp ? { icmpType: icmp } : {}) };
+}
+
 /** First match wins; no match is the implicit deny. Returns the matching entry's seq (or null). */
-export function evaluate(acl: Acl, p: Packet): { permit: boolean; seq: number | null } {
+export function evaluate(acl: Acl, p: Packet, env: AclEnv = {}): { permit: boolean; seq: number | null } {
   for (const e of acl.entries) {
+    if (e.evaluate !== undefined) {
+      // Reflexive: a reply whose request went out through a `reflect NAME` entry.
+      // Only replies get through: a reflexive entry exists because the conversation started inside.
+      const reply = p.proto === 'tcp' ? !!p.established : p.proto === 'icmp' ? p.icmpType !== 'echo' : p.proto === 'udp' ? (p.dstPort ?? 0) >= 1024 && (p.srcPort ?? 0) < 1024 : false;
+      const back = reversed(p);
+      const opened =
+        reply && Object.values(env.acls ?? {}).some((other) =>
+        other.entries.some((x) => x.reflect?.name === e.evaluate && x.action === 'permit' && entryMatches(other.type, x, back) && rangeActive(env.ranges?.[x.timeRange ?? ''], env.now ?? new Date(0)) && firstMatch(other, back, env)?.seq === x.seq),
+      );
+      if (opened) return { permit: true, seq: e.seq };
+      continue;
+    }
+    if (e.timeRange && env.now && !rangeActive(env.ranges?.[e.timeRange], env.now)) continue;
     if (entryMatches(acl.type, e, p)) return { permit: e.action === 'permit', seq: e.seq };
   }
   return { permit: false, seq: null };
+}
+
+function firstMatch(acl: Acl, p: Packet, env: AclEnv): AclEntry | null {
+  for (const e of acl.entries) {
+    if (e.evaluate !== undefined || e.remark !== undefined) continue;
+    if (e.timeRange && env.now && !rangeActive(env.ranges?.[e.timeRange], env.now)) continue;
+    if (entryMatches(acl.type, e, p)) return e;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- rendering
@@ -280,6 +410,7 @@ function portText(p: PortSpec, proto: Proto): string {
 /** The entry body as IOS prints it ("permit tcp any host 10.1.1.1 eq 443"). */
 export function entryText(type: AclType, e: AclEntry, showStyle = false): string {
   if (e.remark !== undefined) return `remark ${e.remark}`;
+  if (e.evaluate !== undefined) return `evaluate ${e.evaluate}`;
   const action = type === 'standard' && e.action === 'deny' ? 'deny  ' : e.action!;
   if (type === 'standard') return `${action} ${addrText(e.src!, true, showStyle)}${e.log ? ' log' : ''}`;
   const parts = [e.action!, e.proto!, addrText(e.src!, false, false)];
@@ -289,6 +420,8 @@ export function entryText(type: AclType, e: AclEntry, showStyle = false): string
   if (e.icmpType) parts.push(e.icmpType);
   if (e.established) parts.push('established');
   if (e.log) parts.push('log');
+  if (e.reflect) parts.push(`reflect ${e.reflect.name}${e.reflect.timeout ? ` timeout ${e.reflect.timeout}` : ''}`);
+  if (e.timeRange) parts.push(`time-range ${e.timeRange}`);
   return parts.join(' ');
 }
 
@@ -311,14 +444,38 @@ export function aclConfigLines(acls: Record<string, Acl>): string[] {
 }
 
 /** `show access-lists` for one list. */
-export function showAcl(acl: Acl, hits: Record<string, number>): string[] {
+export function showAcl(acl: Acl, hits: Record<string, number>, env: AclEnv = {}): string[] {
   const out = [`${acl.type === 'standard' ? 'Standard' : 'Extended'} IP access list ${acl.name}`];
   for (const e of acl.entries) {
     if (e.remark !== undefined) continue;
     const n = hits[`${acl.name}:${e.seq}`] ?? 0;
-    out.push(`    ${e.seq} ${entryText(acl.type, e, true)}${n ? ` (${n} match${n === 1 ? '' : 'es'})` : ''}`);
+    const state = e.timeRange && env.now ? (env.ranges?.[e.timeRange] ? (rangeActive(env.ranges[e.timeRange], env.now) ? ' (active)' : ' (inactive)') : ' (active)') : '';
+    out.push(`    ${e.seq} ${entryText(acl.type, e, true)}${state}${n ? ` (${n} match${n === 1 ? '' : 'es'})` : ''}`);
   }
   return out;
+}
+
+/** `show access-lists` lists the reflexive lists too, with the temporary entries currently open. */
+export function reflexiveNames(acls: Record<string, Acl>): string[] {
+  return [...new Set(Object.values(acls).flatMap((a) => a.entries.map((e) => e.reflect?.name).filter((n): n is string => !!n)))];
+}
+
+/** `ip access-list resequence NAME START STEP`. */
+export function resequence(acl: Acl, start: number, step: number): void {
+  let n = start;
+  for (const e of acl.entries) {
+    if (e.remark !== undefined) continue;
+    e.seq = n;
+    n += step;
+  }
+  // Remarks stay just before the entry that followed them.
+  for (let i = 0; i < acl.entries.length; i++) {
+    const e = acl.entries[i];
+    if (e.remark === undefined) continue;
+    const next = acl.entries.slice(i + 1).find((x) => x.remark === undefined);
+    e.seq = (next ? next.seq : n) - 0.5;
+  }
+  acl.entries.sort((a, b) => a.seq - b.seq);
 }
 
 /** Inserts an entry by sequence number (or at the end, +10). Returns an error message or null. */

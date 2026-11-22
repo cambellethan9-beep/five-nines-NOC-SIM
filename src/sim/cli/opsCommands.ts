@@ -21,7 +21,8 @@ import { shortIfName } from '../ifnames';
 import { formatIp, parseIp } from '../ip';
 import { showMacCount, showMacTable } from '../mactable';
 import { secretFromHash, showCountersErrors } from '../render';
-import { sourceAddressFor, l3Interfaces } from '../routing';
+import { canReach, l3Interfaces, ownsAddress, sourceAddressFor } from '../routing';
+import { flashFree, md5Of } from '../images';
 import type { DeviceConfig, DeviceKind, StoredFile } from '../types';
 import { isSwitchKind } from '../types';
 import { caret, commit, type Ctx, type Tree } from './context';
@@ -117,6 +118,24 @@ const HS: Record<string, string> = {
 // ---- global and line hardening ------------------------------------------------------------------
 
 export function addHardeningGlobal(t: Tree): void {
+  const HB = { boot: 'Modify system boot parameters', system: 'System image file', url: 'flash:<image file>' };
+  t.add('boot system <word:url>', HB, (c, a) => {
+    const u = parseUrl(String(a.url));
+    if (!u || u.fs !== 'flash' || !u.name) return caret(c, a['@url'] as number);
+    const entry = `flash:${u.name}`;
+    const list = (c.dev.running.bootSystem ??= []);
+    if (!list.includes(entry)) list.push(entry);
+  });
+  t.add('boot system flash <word:name>', HB, (c, a) => {
+    const list = (c.dev.running.bootSystem ??= []);
+    const entry = `flash:${a.name}`;
+    if (!list.includes(entry)) list.push(entry);
+  });
+  t.add('no boot system', HB, (c) => void (c.dev.running.bootSystem = []));
+  t.add('no boot system <word:url>', HB, (c, a) => {
+    const name = String(a.url).replace(/^flash:\/?/i, '');
+    c.dev.running.bootSystem = (c.dev.running.bootSystem ?? []).filter((b) => b !== `flash:${name}`);
+  });
   t.add('service password-encryption', HO, (c) => {
     c.dev.running.servicePasswordEncryption = true;
     encryptAll(c.dev.running);
@@ -346,6 +365,21 @@ function copy(c: Ctx, srcText: string, dstText: string, srcCol: number, dstCol: 
     );
     return;
   }
+  if (src.fs === 'tftp' && dst.fs === 'flash') {
+    askTftp(
+      c,
+      src,
+      '',
+      'Source',
+      (u, out) => {
+        const name = (u as Extract<FileUrl, { fs: 'tftp' }>).name!;
+        c.s.ask({ prompt: `Destination filename [${dst.name || name}]? `, handle: (ans, o) => copyImage(c, u as Extract<FileUrl, { fs: 'tftp' }>, ans.trim() || dst.name || name, o) });
+        void out;
+      },
+      c.out,
+    );
+    return;
+  }
   if (src.fs === 'startup' && dst.fs === 'running') {
     if (!c.dev.startup) return void c.out.push('%Error opening nvram:startup-config (No such file or directory)');
     c.s.ask({
@@ -372,7 +406,106 @@ function copy(c: Ctx, srcText: string, dstText: string, srcCol: number, dstCol: 
   c.out.push('%Error: Invalid copy operation');
 }
 
+/** `copy tftp: flash:` of an NSOS image: checks the server has it and that flash has room. */
+function copyImage(c: Ctx, src: Extract<FileUrl, { fs: 'tftp' }>, dest: string, out: string[]): void {
+  const server = [...c.net.devices.values()].find((d) => d.tftpd && c.net.isOnline(d) && src.host !== null && ownsAddress(c.net, d, src.host));
+  out.push(`Accessing ${urlText(src)}...`);
+  const reachable = !!server && canReach(c.net, c.dev.id, src.host!, { proto: 'udp', port: 69 });
+  if (!reachable) return void out.push(`%Error opening ${urlText(src)} (Timed out)`);
+  const img = server!.images?.[src.name!];
+  if (!img) {
+    // A config file can be copied to flash too.
+    const f = server!.files?.[src.name!];
+    if (!f) return void out.push(`%Error opening ${urlText(src)} (No such file)`);
+    (c.dev.files ??= {})[dest] = { ...f };
+    out.push(`Loading ${src.name} from ${formatIp(src.host!)} (via ${viaInterface(c, src.host!)}): !`, `[OK - ${f.text.length} bytes]`, '', `${f.text.length} bytes copied in 0.512 secs`);
+    return;
+  }
+  const existing = c.dev.images?.[dest]?.size ?? 0;
+  if (img.size > flashFree(c.dev) + existing) {
+    out.push(`Loading ${src.name} from ${formatIp(src.host!)} (via ${viaInterface(c, src.host!)}): !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`, `%Error copying ${urlText(src)} (Not enough space on device)`);
+    return;
+  }
+  (c.dev.images ??= {})[dest] = { ...img };
+  (c.dev.imageTimes ??= {})[dest] = c.net.time;
+  const secs = img.size / 94000;
+  out.push(
+    `Loading ${src.name} from ${formatIp(src.host!)} (via ${viaInterface(c, src.host!)}): ${'!'.repeat(70)}`,
+    '!'.repeat(70),
+    `[OK - ${img.size} bytes]`,
+    '',
+    `${img.size} bytes copied in ${secs.toFixed(3)} secs (${Math.round(img.size / secs)} bytes/sec)`,
+  );
+}
+
+function scheduleText(c: Ctx, at: number): string {
+  const w = c.net.wallClock(at);
+  const hms = [w.getUTCHours(), w.getUTCMinutes(), w.getUTCSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+  return `${hms} UTC ${w.toUTCString().slice(0, 3)} ${w.toUTCString().slice(8, 11)} ${w.getUTCDate()} ${w.getUTCFullYear()}`;
+}
+
 export function addOpsExec(t: Tree): void {
+  // ---- NSOS images: verify, delete, scheduled reloads ----
+  t.add('verify /md5 <word:url>', { ...HE, verify: 'Verify a file', '/md5': 'Compute an MD5 signature for a file' }, (c, a) => verify(c, String(a.url), a['@url'] as number));
+  t.add('verify /md5 <word:url> <word:hash>', { ...HE, verify: 'Verify a file' }, (c, a) => verify(c, String(a.url), a['@url'] as number, String(a.hash)));
+  const del = (c: Ctx, a: Record<string, unknown>, force: boolean) => {
+    const u = parseUrl(String(a.url));
+    if (!u || u.fs !== 'flash') return caret(c, a['@url'] as number);
+    const name = u.name;
+    const exists = !!c.dev.images?.[name] || !!c.dev.files?.[name];
+    const go = (o: string[]) => {
+      if (!exists) return void o.push(`%Error deleting flash:/${name} (No such file or directory)`);
+      if (c.dev.images) delete c.dev.images[name];
+      if (c.dev.files) delete c.dev.files[name];
+    };
+    if (force) return go(c.out);
+    c.s.ask({
+      prompt: `Delete filename [${name}]? `,
+      handle: () =>
+        c.s.ask({
+          prompt: `Delete flash:/${name}? [confirm]`,
+          handle: (y, o2) => (/^(|y|yes)$/i.test(y.trim()) ? go(o2) : undefined),
+        }),
+    });
+  };
+  t.add('delete <word:url>', { ...HE, delete: 'Delete a file' }, (c, a) => del(c, a, false));
+  t.add('delete /force <word:url>', { ...HE, delete: 'Delete a file', '/force': 'Force delete' }, (c, a) => del(c, a, true));
+  const schedule = (c: Ctx, at: number, text: string) => {
+    c.out.push(`Reload scheduled ${text} by ${c.s.isRemote ? 'vty0' : 'console'}`, 'Reload reason: Reload Command');
+    c.s.ask({
+      prompt: 'Proceed with reload? [confirm]',
+      handle: (x) => {
+        if (!/^(|y|yes|confirm)$/i.test(x.trim())) return;
+        c.dev.reloadAt = at;
+        c.net.log(c.dev.id, `%SYS-5-SCHEDULED_RELOAD: Reload requested for ${scheduleText(c, at)} at ${scheduleText(c, c.net.time)} by ${c.s.isRemote ? 'vty0' : 'console'}. Reload Reason: Reload Command.`);
+      },
+    });
+  };
+  t.add('reload in <word:when>', { ...HE, reload: 'Halt and perform a cold restart', in: 'Reload after a time interval', when: 'Delay before reload (mmm or hhh:mm)' }, (c, a) => {
+    const m = /^(?:(\d{1,3}):)?(\d{1,3})$/.exec(String(a.when));
+    if (!m) return caret(c, a['@when'] as number);
+    const mins = Number(m[1] ?? 0) * 60 + Number(m[2]);
+    if (mins < 1 || mins > 24 * 60 * 24) return caret(c, a['@when'] as number);
+    const at = c.net.time + mins * 60000;
+    schedule(c, at, `for ${scheduleText(c, at)} (in ${Math.floor(mins / 60)} hours ${mins % 60} minutes)`);
+  });
+  t.add('reload at <word:when>', { ...HE, reload: 'Halt and perform a cold restart', at: 'Reload at a specific time/date', when: 'Time to reload (hh:mm)' }, (c, a) => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(a.when));
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return caret(c, a['@when'] as number);
+    const now = c.net.wallClock();
+    const target = new Date(now);
+    target.setUTCHours(Number(m[1]), Number(m[2]), 0, 0);
+    if (target.getTime() <= now.getTime()) target.setUTCDate(target.getUTCDate() + 1);
+    const at = c.net.time + (target.getTime() - now.getTime());
+    const mins = Math.round((at - c.net.time) / 60000);
+    schedule(c, at, `for ${scheduleText(c, at)} (in ${Math.floor(mins / 60)} hours ${mins % 60} minutes)`);
+  });
+  t.add('reload cancel', { ...HE, reload: 'Halt and perform a cold restart', cancel: 'Cancel pending reload' }, (c) => {
+    if (c.dev.reloadAt === undefined) return void c.out.push('%No reload is scheduled.');
+    delete c.dev.reloadAt;
+    c.out.push('', '', '***', '*** --- SHUTDOWN ABORTED ---', '***', '');
+  });
+
   t.add('copy running-config <word:dst>', HE, (c, a) => copy(c, 'running-config', a.dst as string, 5, a['@dst'] as number));
   t.add('copy startup-config <word:dst>', HE, (c, a) => copy(c, 'startup-config', a.dst as string, 5, a['@dst'] as number));
   t.add('copy <word:src> <word:dst>', HE, (c, a) => copy(c, a.src as string, a.dst as string, a['@src'] as number, a['@dst'] as number));
@@ -438,10 +571,34 @@ export function addOpsExec(t: Tree): void {
   });
 }
 
+function verify(c: Ctx, url: string, col: number, expected?: string): void {
+  const u = parseUrl(url);
+  if (!u || u.fs !== 'flash') return caret(c, col);
+  const img = c.dev.images?.[u.name];
+  const f = c.dev.files?.[u.name];
+  if (!img && !f) return void c.out.push(`%Error opening flash:/${u.name} (No such file or directory)`);
+  const md5 = img ? (img.corrupt ? md5Of(u.name, true) : img.md5) : md5Of(f!.text);
+  c.out.push('.'.repeat(img ? 60 : 4) + 'Done!');
+  if (expected === undefined) return void c.out.push(`verify /md5 (flash:${u.name}) = ${md5}`, '');
+  if (expected.toLowerCase() === md5) c.out.push(`Verified (flash:${u.name}) = ${md5}`, '');
+  else c.out.push(`%Error verifying flash:${u.name}`, `Computed signature  = ${md5}`, `Submitted signature = ${expected.toLowerCase()}`, '');
+}
+
 const MAC_RE = /^[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}$/i;
 
 export function addOpsShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   t.add('show login', HS, (c) => c.out.push(...showLogin(c.net, c.dev)));
+  t.add('show reload', { ...HS, reload: 'Scheduled reload information' }, (c) => {
+    if (c.dev.reloadAt === undefined) return void c.out.push('No reload is scheduled.');
+    const mins = Math.max(0, Math.round((c.dev.reloadAt - c.net.time) / 60000));
+    c.out.push(`Reload scheduled for ${scheduleText(c, c.dev.reloadAt)} (in ${Math.floor(mins / 60)} hours ${mins % 60} minutes) by console`, 'Reload reason: Reload Command');
+  });
+  if (isSwitchKind(kind)) {
+    t.add('show boot', { ...HS, boot: 'show boot attributes' }, (c) => {
+      const b = c.dev.running.bootSystem ?? [];
+      c.out.push(`BOOT path-list      : ${b.join(';')}`, 'Config file         : flash:/config.text', 'Private Config file : flash:/private-config.text', 'Enable Break        : no', 'Manual Boot         : no', 'HELPER path-list    : ', 'Auto upgrade        : yes');
+    });
+  }
   if (privileged) {
     t.add('show archive', HS, (c) => c.out.push(...showArchive(c.net, c.dev)));
     const diff = (c: Ctx, a: Record<string, unknown>, second: boolean) => {

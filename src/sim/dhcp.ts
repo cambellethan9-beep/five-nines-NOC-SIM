@@ -6,6 +6,7 @@ import { inSubnet, type Ipv4 } from './ip';
 import type { Network } from './network';
 import { iosScopes } from './iosDhcp';
 import { canReach, l3Interfaces, ownsAddress, routes } from './routing';
+import { dhcpPath, recordBindings, relayAcceptsOption82, type DhcpPath, type End } from './security';
 import type { DhcpLease, DhcpScope, Device } from './types';
 
 export function nicOf(device: Device): string {
@@ -28,6 +29,9 @@ export function isApipa(ip: Ipv4): boolean {
 interface Offer {
   scope: DhcpScope;
   serverIp: Ipv4;
+  /** The server's (or relay's) interface on the client's LAN, for DHCP snooping. */
+  via: End;
+  path: Extract<DhcpPath, { ok: true }>;
 }
 
 /** Finds a DHCP server that would answer this PC: directly on its LAN, or through a relay. */
@@ -39,13 +43,20 @@ function scopesOf(device: Device): DhcpScope[] {
 function findServer(net: Network, pc: Device): Offer | null {
   const nic = nicOf(pc);
   const domain = net.domainOf(pc.id, nic);
+  const client: End = { device: pc.id, iface: nic };
+  const relayed: Offer[] = [];
   for (const device of net.devices.values()) {
     if (!net.isOnline(device)) continue;
     for (const ifc of l3Interfaces(net, device)) {
       if (!ifc.up || net.domainOf(device.id, ifc.name) !== domain || (device.id === pc.id && ifc.name === nic)) continue;
-      // A DHCP server right on this LAN.
+      const via: End = { device: device.id, iface: ifc.name };
+      // A DHCP server right on this LAN answers first (it's closer than anything relayed).
       const local = scopesOf(device).find((s) => inSubnet(ifc.address, s.network, s.prefix));
-      if (local) return { scope: local, serverIp: ifc.address };
+      if (local) {
+        const path = dhcpPath(net, client, via);
+        if (path.ok) return { scope: local, serverIp: ifc.address, via, path };
+        continue;
+      }
       // A relay: the router forwards the broadcast to its helper addresses, tagged with this interface's subnet.
       if (!routes(device)) continue;
       const helpers = device.running.interfaces[ifc.name]?.helpers ?? [];
@@ -53,11 +64,30 @@ function findServer(net: Network, pc: Device): Offer | null {
         const server = [...net.devices.values()].find((d) => scopesOf(d).length && net.isOnline(d) && ownsAddress(net, d, helper));
         if (!server || !canReach(net, device.id, helper, { proto: 'udp', port: 67 })) continue;
         const scope = scopesOf(server).find((s) => inSubnet(ifc.address, s.network, s.prefix));
-        if (scope) return { scope, serverIp: helper };
+        if (!scope) continue;
+        const path = dhcpPath(net, client, via);
+        if (!path.ok) continue;
+        // A snooping switch added option 82 with a zero giaddr: an untrusting relay drops the request.
+        if (path.option82 && !relayAcceptsOption82(device, ifc.name)) continue;
+        relayed.push({ scope, serverIp: helper, via, path });
       }
     }
   }
-  return null;
+  return relayed[0] ?? null;
+}
+
+/** Which server's offer would this PC take right now (null = none)? Doesn't change anything. */
+export function dhcpServerFor(net: Network, pcId: string): Ipv4 | null {
+  const pc = net.device(pcId);
+  if (!pc.hostNet?.dhcp || !net.nicWorking(pc) || !net.isUp(pc.id, nicOf(pc))) return null;
+  return findServer(net, pc)?.serverIp ?? null;
+}
+
+/** Would a DHCP request from this PC get an answer right now (without changing anything)? */
+export function dhcpWouldWork(net: Network, pcId: string): boolean {
+  const pc = net.device(pcId);
+  if (!pc.hostNet?.dhcp || !net.nicWorking(pc) || !net.isUp(pc.id, nicOf(pc))) return false;
+  return findServer(net, pc) !== null;
 }
 
 function excluded(scope: DhcpScope, ip: Ipv4): boolean {
@@ -127,6 +157,7 @@ export function dhcpRequest(net: Network, pcId: string): DhcpResult {
     return { ok: false, reason: 'no-answer' };
   }
   offer.scope.leases[mac] = ip;
+  recordBindings(net, offer.path, mac, ip, offer.scope.leaseMs);
   const lease: DhcpLease = {
     ip,
     prefix: offer.scope.prefix,

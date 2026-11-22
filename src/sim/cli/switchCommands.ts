@@ -171,7 +171,7 @@ export function addSwitchGlobal(t: Tree): void {
 
   // errdisable recovery
   const errCfg = (c: Ctx) => (c.dev.running.errdisable ??= { causes: [], interval: 300 });
-  const CAUSES = ['all', 'bpduguard', 'psecure-violation', 'channel-misconfig', 'link-flap', 'loopback', 'udld'];
+  const CAUSES = ['all', 'arp-inspection', 'bpduguard', 'dhcp-rate-limit', 'psecure-violation', 'channel-misconfig', 'link-flap', 'loopback', 'udld'];
   t.add('errdisable recovery cause <word:why>', HW, (c, a) => {
     const cause = CAUSES.find((x) => x.startsWith(String(a.why).toLowerCase()));
     if (!cause) return caret(c, a['@why'] as number);

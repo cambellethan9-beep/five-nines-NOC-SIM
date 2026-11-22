@@ -10,6 +10,7 @@ import { renderConfig } from './render';
 import { canReach, ownsAddress } from './routing';
 import type { Device, DeviceConfig, StoredFile } from './types';
 import { isSwitchKind } from './types';
+import { FLASH_BYTES, flashUsed } from './images';
 
 export type FileUrl =
   | { fs: 'flash'; name: string }
@@ -186,20 +187,18 @@ export function configDiff(d: Device, from: DeviceConfig, to: DeviceConfig): str
 // ---- flash: listing -------------------------------------------------------------------------------
 
 export function showFlash(net: Network, d: Device): string[] {
-  const family = d.model.replace('NS-', '').toLowerCase();
-  const image = { name: `ns${family}-universalk9-mz.SPA.bin`, size: d.kind === 'router' ? 104223308 : 15998208 };
   const date = (t: number) => {
     const w = net.wallClock(t);
     const mon = w.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
     return `${mon} ${String(w.getUTCDate()).padStart(2)} ${w.getUTCFullYear()} ${[w.getUTCHours(), w.getUTCMinutes(), w.getUTCSeconds()].map((n) => String(n).padStart(2, '0')).join(':')}`;
   };
-  const rows: { name: string; size: number; time: number }[] = [{ name: image.name, size: image.size, time: -86400000 * 400 }];
+  const rows: { name: string; size: number; time: number }[] = Object.entries(d.images ?? {}).map(([name, i], n) => ({ name, size: i.size, time: n === 0 ? -86400000 * 400 : (d.imageTimes?.[name] ?? net.time) }));
   if (isSwitchKind(d.kind)) rows.push({ name: 'vlan.dat', size: 1636, time: -86400000 * 30 });
   for (const [name, f] of Object.entries(d.files ?? {})) rows.push({ name, size: f.text.length, time: f.time });
-  const total = d.kind === 'router' ? 256487424 : 64016384;
-  const used = rows.reduce((s, r) => s + r.size, 0);
+  const total = FLASH_BYTES[d.model] ?? 64016384;
+  const used = flashUsed(d);
   const lines = ['Directory of flash:/', ''];
-  rows.forEach((r, i) => lines.push(`${String(i + 2).padStart(5)}  -rw-  ${String(r.size).padStart(12)}  ${date(r.time)} +00:00  ${r.name}`));
+  rows.forEach((r, i) => lines.push(`${String(i + 2).padStart(5)}  -rw-  ${String(r.size).padStart(12)}  ${date(Math.max(r.time, -86400000 * 400))} +00:00  ${r.name}`));
   lines.push('', `${total} bytes total (${total - used} bytes free)`);
   return lines;
 }

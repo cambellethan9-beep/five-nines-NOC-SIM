@@ -7,7 +7,7 @@ multi-site networks, cloud vs on-prem, seasons, then accounts and a $3/month sub
 
 **Read `ROADMAP.md` first.** It is the source of truth for scope, phase order and every agreed decision.
 Phases 0 and 1 are done. Phase 2's CCNA core configuration list (items 1-9: filters, ACLs, NAT, IOS DHCP/DNS,
-syslog/NTP/SNMP, dynamic routing, switching, operations) is done. **Next: the rest of Phase 2** (fault generator,
+syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) is done. **Next: the rest of Phase 2** (fault generator,
 skill radar, stale docs) in the order written there; propose before building. Riverside (multi-site) stays locked
 until a rank above NOC Manager.
 
@@ -56,7 +56,7 @@ Downtime drain scale; whether the
 |---|---|
 | `src/sim/` | Engine, no UI: devices, L1/L2/L3 state (`network.ts`), routing/ping (`routing.ts`), IOS output (`render.ts`), SSH (`remote.ts`), PC prompt (`host.ts`), DHCP + APIPA (`dhcp.ts`), DNS resolver/cache (`dns.ts`), traffic, background noise |
 | `src/sim/control/` | Routing protocols: OSPF, EIGRP, RIP, BGP, redistribution; cached per `net.version`, adjacency logs |
-| `src/sim/` (more) | ACLs (`acl.ts`), NAT (`nat.ts`), IOS DHCP server (`iosDhcp.ts`), syslog/NTP/SNMP (`mgmt.ts`), L2/STP/EtherChannel/VTP (`l2.ts`), MAC table (`mactable.ts`), type 7/login block-for/exec-timeout (`hardening.ts`), flash/TFTP/archive/configure replace (`backup.ts`) |
+| `src/sim/` (more) | ACLs (`acl.ts`), NAT (`nat.ts`), IOS DHCP server (`iosDhcp.ts`), syslog/NTP/SNMP (`mgmt.ts`), L2/STP/EtherChannel/VTP (`l2.ts`), MAC table (`mactable.ts`), type 7/login block-for/exec-timeout (`hardening.ts`), flash/TFTP/archive/configure replace (`backup.ts`), snooping/DAI/IPSG/PACL/VACL (`security.ts`), NSOS images/boot/ROMMON (`images.ts`) |
 | `src/sim/cli/` | Parser (`parser.ts`), session and modes (`session.ts`), feature command files (`*Commands.ts`, `routingShows.ts`), pipe filters |
 | `src/content/` | Cedar Ridge Accounting office (`office.ts`), predecessor docs (`docs.ts`), Phase 0 demo network (tests only) |
 | `src/game/` | Game state (`game.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |

@@ -1,7 +1,9 @@
 // Layer 3: routing tables, ARP resolution and the hop-by-hop packet walk used by ping/traceroute.
 // The sim models state, not packets: a "packet" is a lookup walk across devices.
 
-import { evaluate, type Packet } from './acl';
+import { evaluate, type AclEnv, type Packet } from './acl';
+import { deviceClock } from './mgmt';
+import { arpAllowed, l2Permits } from './security';
 import { natInbound, natOutbound, type Translation } from './nat';
 import { dynamicRoutes } from './control';
 import { formatIp, inSubnet, networkOf, type Ipv4 } from './ip';
@@ -187,7 +189,11 @@ function arpResolve(net: Network, deviceId: string, iface: string, ip: Ipv4, all
     for (const ifc of l3Interfaces(net, other)) {
       if (!ifc.up || (other.id === deviceId && ifc.name === iface)) continue;
       if (net.domainOf(other.id, ifc.name) !== domain) continue;
-      if (ifc.address === ip) return { device: other.id, iface: ifc.name };
+      if (ifc.address === ip) {
+        const found = { device: other.id, iface: ifc.name };
+        // Dynamic ARP inspection on a switch in between can drop the request or the reply.
+        return arpAllowed(net, { device: deviceId, iface }, found) ? found : null;
+      }
       if (allowProxy && !proxy && routes(other)) {
         // Proxy ARP: a router answers for an address it can route somewhere other than back out this port.
         const decision = forwardingDecision(net, other, ip);
@@ -255,18 +261,39 @@ export interface WalkOptions {
 }
 
 /** Applies the ACL bound to an interface in one direction. Undefined or empty ACLs permit everything. */
-export function aclPermits(device: Device, iface: string, dir: 'in' | 'out', pkt: Packet, count: boolean): boolean {
-  const name = device.running.interfaces[iface]?.accessGroup?.[dir];
+export function aclPermits(device: Device, iface: string, dir: 'in' | 'out', pkt: Packet, count: boolean, net?: Network): boolean {
+  const ifc = device.running.interfaces[iface];
+  // On a switchport the IP ACL is a port ACL, applied where hosts enter the switch (see security.ts).
+  if (ifc?.switchport) return true;
+  const name = ifc?.accessGroup?.[dir];
   if (!name) return true;
   const acl = device.running.acls?.[name];
   if (!acl || !acl.entries.some((e) => e.remark === undefined)) return true;
-  const r = evaluate(acl, pkt);
+  const needsEnv = net && acl.entries.some((e) => e.timeRange || e.evaluate);
+  const r = evaluate(acl, pkt, needsEnv ? aclEnv(net, device) : {});
   if (count && r.seq !== null) {
     const hits = (device.aclHits ??= {});
     const key = `${name}:${r.seq}`;
     hits[key] = (hits[key] ?? 0) + 1;
   }
   return r.permit;
+}
+
+/** What ACL evaluation on this device needs: its clock (time ranges) and its other ACLs (reflexive lists). */
+let clockDepth = 0;
+export function aclEnv(net: Network, device: Device): AclEnv {
+  // Working out the clock asks NTP, which sends packets through ACLs: don't recurse, use the true time.
+  let now: Date;
+  if (clockDepth > 0) now = net.wallClock();
+  else {
+    clockDepth++;
+    try {
+      now = deviceClock(net, device).date;
+    } finally {
+      clockDepth--;
+    }
+  }
+  return { now, ranges: device.running.timeRanges ?? {}, acls: device.running.acls ?? {} };
 }
 
 export interface WalkResult {
@@ -310,7 +337,7 @@ export function walk(net: Network, fromDevice: string, dest: Ipv4, maxHops = 30,
       if (t === 'drop') return end({ delivered: false, failedAt: current.id, failure: 'nat' });
       if (t) translations.push(t);
       // Outbound ACLs filter transit traffic only; IOS doesn't apply them to packets the router originates.
-      if (!aclPermits(current, decision.egress, 'out', pkt, count)) {
+      if (!aclPermits(current, decision.egress, 'out', pkt, count, net)) {
         return end({ delivered: false, failedAt: current.id, failure: 'acl', aclIface: decision.egress });
       }
     }
@@ -331,7 +358,10 @@ export function walk(net: Network, fromDevice: string, dest: Ipv4, maxHops = 30,
     const next = net.device(target.device);
     const ingressIp = next.running.interfaces[target.iface]?.ip?.address ?? null;
     hops.push({ device: next.id, ingress: target.iface, ingressIp, src: pkt?.src });
-    if (pkt && !aclPermits(next, target.iface, 'in', pkt, count)) {
+    if (pkt && !l2Permits(net, { device: current.id, iface: decision.egress }, target, pkt, count)) {
+      return end({ delivered: false, failedAt: current.id, failure: 'acl', aclIface: decision.egress });
+    }
+    if (pkt && !aclPermits(next, target.iface, 'in', pkt, count, net)) {
       return end({ delivered: false, failedAt: next.id, failure: 'acl', aclIface: target.iface });
     }
     // Outside -> inside: the inbound ACL sees the global address, then NAT un-translates it.

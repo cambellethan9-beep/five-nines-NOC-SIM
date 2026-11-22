@@ -1,4 +1,4 @@
-import type { Acl } from './acl';
+import type { Acl, TimeRange } from './acl';
 import type { InterfaceOspf, RoutingConfig } from './control/config';
 import type { IosDhcpPool } from './iosDhcp';
 import type { LoggingConfig, NtpConfig, SnmpConfig, Timestamps } from './mgmt';
@@ -39,6 +39,16 @@ export interface InterfaceConfig {
   helpers?: Ipv4[];
   /** `ip access-group NAME in|out`. */
   accessGroup?: { in?: string; out?: string };
+  /** `mac access-group NAME in` (L2 ports; filters non-IP frames). */
+  macAccessGroup?: string;
+  /** DHCP snooping / DAI per-port settings, `ip verify source`, `ip dhcp relay information trusted`. */
+  snoopTrust?: boolean;
+  snoopRate?: number;
+  daiTrust?: boolean;
+  /** `ip arp inspection limit rate N` (absent = 15 pps on untrusted ports; null = `none`). */
+  daiRate?: number | null;
+  verifySource?: boolean;
+  relayInfoTrusted?: boolean;
   /** `ip nat inside` / `ip nat outside`. */
   nat?: 'inside' | 'outside';
   /** `bandwidth` (kbps), `delay` (tens of microseconds), `mtu` and `ip mtu`. */
@@ -96,6 +106,71 @@ export interface ArchiveConfig {
   /** Minutes between automatic archives. */
   timePeriod: number | null;
   maximum: number | null;
+}
+
+export interface MacAclEntry {
+  action: 'permit' | 'deny';
+  /** null = any. */
+  src: { mac: string; mask: string } | null;
+  dst: { mac: string; mask: string } | null;
+}
+
+export interface MacAcl {
+  name: string;
+  entries: MacAclEntry[];
+}
+
+export interface VlanMapEntry {
+  seq: number;
+  action: 'forward' | 'drop';
+  matchIp: string[];
+  matchMac: string[];
+}
+
+export interface SnoopingConfig {
+  enabled: boolean;
+  vlans: number[];
+  /** Insert option 82 (on by default). */
+  option82: boolean;
+}
+
+export interface DaiConfig {
+  vlans: number[];
+  /** `ip arp inspection filter ACL vlan N [static]`. */
+  filters: { acl: string; vlans: number[]; static: boolean }[];
+  validate: ('src-mac' | 'dst-mac' | 'ip')[];
+}
+
+export interface SourceBinding {
+  mac: string;
+  vlan: number;
+  ip: Ipv4;
+  iface: string;
+}
+
+export interface ArpAclEntry {
+  action: 'permit' | 'deny';
+  /** null = any. */
+  ip: Ipv4 | null;
+  mac: string | null;
+}
+
+/** A NetSmart OS image file. */
+export interface OsImage {
+  family: string;
+  version: string;
+  size: number;
+  md5: string;
+  /** A download that didn't finish or got mangled: its MD5 won't match and it won't boot. */
+  corrupt?: boolean;
+}
+
+export interface SnoopBinding {
+  mac: string;
+  ip: Ipv4;
+  vlan: number;
+  iface: string;
+  expires: number;
 }
 
 /** A saved configuration file (flash:, or on a TFTP server). Keeps the exact config so restores are faithful. */
@@ -167,6 +242,20 @@ export interface DeviceConfig {
   minPasswordLength?: number;
   loginBlock?: { blockFor: number; attempts: number; within: number; quietAcl: string | null } | null;
   bannerLogin?: string | null;
+  /** Time ranges, MAC ACLs, VLAN access maps and `vlan filter`. */
+  timeRanges?: Record<string, TimeRange>;
+  macAcls?: Record<string, MacAcl>;
+  vlanMaps?: Record<string, VlanMapEntry[]>;
+  vlanFilters?: { map: string; vlans: number[] }[];
+  /** DHCP snooping, dynamic ARP inspection and static IP source bindings. */
+  snooping?: SnoopingConfig;
+  dai?: DaiConfig;
+  sourceBindings?: SourceBinding[];
+  arpAcls?: Record<string, ArpAclEntry[]>;
+  /** `ip dhcp relay information trust-all`. */
+  relayTrustAll?: boolean;
+  /** `boot system flash:<image>` entries, in order. */
+  bootSystem?: string[];
   bannerExec?: string | null;
   archive?: ArchiveConfig | null;
 }
@@ -246,6 +335,23 @@ export interface Device {
   quietUntil?: number;
   /** `clear mac address-table dynamic`: when the table was last flushed. */
   macClearedAt?: number;
+  /** DHCP snooping bindings (learned from DHCP through this switch), keyed by MAC. */
+  snoopBindings?: Record<string, SnoopBinding>;
+  /** Packets dropped by dynamic ARP inspection. */
+  daiDrops?: number;
+  /** OS images on flash: (or in a TFTP root), and the image the device is running. */
+  images?: Record<string, OsImage>;
+  image?: string;
+  /** When each image arrived on flash (for `dir`). */
+  imageTimes?: Record<string, number>;
+  /** What the console printed while choosing an image at the last boot. */
+  bootNotes?: string[];
+  /** ROMMON variables (IP_ADDRESS, TFTP_SERVER, ...). */
+  rommonVars?: Record<string, string>;
+  /** Stuck in ROMMON: no bootable image was found. */
+  rommon?: boolean;
+  /** `reload in` / `reload at`: when the scheduled reload happens. */
+  reloadAt?: number;
   /** Last `%CDP-4-DUPLEX_MISMATCH` message, per interface. */
   duplexLogAt?: Record<string, number>;
 }

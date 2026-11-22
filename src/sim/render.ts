@@ -13,14 +13,11 @@ import type { Network } from './network';
 import { l3Interfaces, macOf, routes, routingTable, type Route } from './routing';
 import { interfaceRates } from './traffic';
 import { type7Encode } from './hardening';
+import { osVersion, runningImageName } from './images';
+import { securityGlobalLines, securityInterfaceLines } from './cli/securityCommands';
 import type { Device, DeviceConfig, InterfaceConfig, LineConfig } from './types';
 import { isHostKind, isSwitchKind } from './types';
 
-const OS_VERSION: Record<string, string> = {
-  router: '15.2(4)M3',
-  switch: '15.0(2)SE4',
-  l3switch: '15.0(2)SE4',
-};
 
 function sortedInterfaces(config: DeviceConfig): InterfaceConfig[] {
   return Object.values(config.interfaces).sort((a, b) => compareIfNames(a.name, b.name));
@@ -86,9 +83,10 @@ function md5ish(secret: string): string {
 
 export function renderConfig(device: Device, config: DeviceConfig): string[] {
   const lines: string[] = ['!'];
-  lines.push(`version ${OS_VERSION[device.kind]?.split('(')[0] ?? '15.2'}`);
+  lines.push(`version ${osVersion(device).split('(')[0]}`);
   lines.push(...timestampLines(device));
   lines.push(config.servicePasswordEncryption ? 'service password-encryption' : 'no service password-encryption', '!', `hostname ${config.hostname}`, '!');
+  if (config.bootSystem?.length) lines.push('boot-start-marker', ...config.bootSystem.map((b) => `boot system ${b}`), 'boot-end-marker', '!');
   if (isSwitchKind(device.kind)) lines.push(...switchGlobalLines(device));
   const top = loggingTopLines(device);
   if (top.length) lines.push(...top, '!');
@@ -158,6 +156,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
       }
       if (sp.mode !== 'dynamic auto') lines.push(` switchport mode ${sp.mode}`);
       lines.push(...switchInterfaceLines(ifc));
+      lines.push(...securityInterfaceLines(ifc));
     } else if (device.kind === 'l3switch' && !ifc.name.startsWith('Vlan') && !ifc.name.startsWith('Loopback')) {
       lines.push(' no switchport');
     }
@@ -168,6 +167,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
       if (ifc.accessGroup?.out) lines.push(` ip access-group ${ifc.accessGroup.out} out`);
       for (const h of ifc.helpers ?? []) lines.push(` ip helper-address ${formatIp(h)}`);
       if (ifc.nat) lines.push(` ip nat ${ifc.nat}`, ' ip virtual-reassembly in');
+      if (ifc.relayInfoTrusted) lines.push(' ip dhcp relay information trusted');
       lines.push(...interfaceRoutingLines(ifc));
     }
     const physical = device.hardware[ifc.name] !== undefined;
@@ -189,6 +189,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     );
   }
   if (config.staticRoutes.length || config.defaultGateway !== null) lines.push('!');
+  lines.push(...securityGlobalLines(config));
   const aclLines = aclConfigLines(config.acls ?? {});
   if (aclLines.length) lines.push(...aclLines, '!');
   lines.push(...loggingBottomLines(device));
@@ -608,7 +609,7 @@ export function showCdpNeighborsDetail(net: Network, device: Device): string[] {
 // ---- system ------------------------------------------------------------------
 
 function versionBanner(device: Device): string[] {
-  const v = OS_VERSION[device.kind] ?? '15.2';
+  const v = osVersion(device);
   const family = device.model.replace('NS-', '');
   return [
     'NetSmart Internetwork Operating System Software',
@@ -629,7 +630,6 @@ function uptime(ms: number): string {
 }
 
 export function showVersion(net: Network, device: Device): string[] {
-  const family = device.model.replace('NS-', '').toLowerCase();
   const gig = Object.keys(device.hardware).filter((n) => n.startsWith('Gigabit')).length;
   const fast = Object.keys(device.hardware).filter((n) => n.startsWith('Fast')).length;
   const lines = [
@@ -641,7 +641,7 @@ export function showVersion(net: Network, device: Device): string[] {
     '',
     `${device.running.hostname} uptime is ${uptime(net.time - device.bootedAt)}`,
     'System returned to ROM by power-on',
-    `System image file is "flash:ns${family}-universalk9-mz.SPA.bin"`,
+    `System image file is "flash:${runningImageName(device)}"`,
     '',
     `NetSmart ${device.model} (revision 1.0) with 491520K/32768K bytes of memory.`,
     `Processor board ID ${device.serial}`,

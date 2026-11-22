@@ -50,6 +50,9 @@ import { iosNameServer, iosResolve } from '../dns';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { execTimeoutMs, passwordTooShort, type7Decode } from '../hardening';
 import { archiveConfig } from '../backup';
+import { bootable, flashFree, flashUsed } from '../images';
+import { BOOT_TIME_MS } from '../network';
+import { addArpAclMode, addMacAclMode, addSecurityGlobal, addSecurityInterface, addSecurityShows, addTimeRangeMode, addVaclMode } from './securityCommands';
 import { addArchiveMode, addHardeningGlobal, addHardeningLine, addOpsExec, addOpsShows } from './opsCommands';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
 
@@ -57,7 +60,8 @@ type BannerKind = 'motd' | 'login' | 'exec';
 
 export type Mode =
   | 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl' | 'dhcp'
-  | 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo' | 'archive';
+  | 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo' | 'archive'
+  | 'timerange' | 'macl' | 'vacl' | 'arpacl';
 
 export interface CliResult {
   output: string[];
@@ -264,6 +268,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   if (kind === 'router' || kind === 'l3switch') addRoutingShows(t, privileged);
   if (isSwitchKind(kind)) addSwitchShows(t, privileged);
   addOpsShows(t, kind, privileged);
+  addSecurityShows(t, kind, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -600,6 +605,7 @@ function buildConfig(kind: DeviceKind): Tree {
   t.add('no banner login', HC, (c) => void (c.dev.running.bannerLogin = null));
   t.add('no banner exec', HC, (c) => void (c.dev.running.bannerExec = null));
   addHardeningGlobal(t);
+  addSecurityGlobal(t, kind);
   t.add('no banner motd', HC, (c) => {
     c.dev.running.bannerMotd = null;
   });
@@ -870,6 +876,7 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
   }));
   t.add('no shutdown', HI, each((_c, ifc) => void (ifc.shutdown = false)));
   addAclInterface(t);
+  addSecurityInterface(t, kind);
   if (kind === 'router') addNatInterface(t);
   if (kind === 'router' || kind === 'l3switch') addRoutingInterface(t);
   if (isSwitchKind(kind)) addSwitchInterface(t);
@@ -1015,6 +1022,10 @@ function buildVlanMode(): Tree {
 
 interface Trees {
   archive: Tree;
+  timerange: Tree;
+  macl: Tree;
+  vacl: Tree;
+  arpacl: Tree;
   user: Tree;
   priv: Tree;
   config: Tree;
@@ -1087,6 +1098,10 @@ export function treesFor(kind: DeviceKind): Trees {
       'router-af-if': withNav(addEigrpAfInterface),
       'router-af-topo': withNav(addEigrpTopology),
       archive: withNav(addArchiveMode),
+      timerange: withNav(addTimeRangeMode),
+      macl: withNav(addMacAclMode),
+      vacl: withNav(addVaclMode),
+      arpacl: withNav(addArpAclMode),
     };
     treeCache.set(kind, trees);
   }
@@ -1114,6 +1129,8 @@ export class CliSession {
   routerCtx: RouterCtx | null = null;
   /** The pool being edited in `(dhcp-config)#`. */
   dhcpContext: string | null = null;
+  /** The time range, MAC ACL, VLAN map entry or ARP ACL being edited. */
+  subContext: { name: string; seq?: number } | null = null;
   private aclType: 'standard' | 'extended' = 'standard';
   /** True for SSH/Telnet (vty) sessions. */
   readonly isRemote: boolean;
@@ -1143,13 +1160,21 @@ export class CliSession {
   }
 
   get booting(): boolean {
-    return !this.net.isOnline(this.device);
+    const d = this.device;
+    return !d.powered || d.bootingUntil !== null;
   }
+
+  private get rommonPrompt(): string {
+    return this.device.kind === 'router' ? `rommon ${this.rommonCount} > ` : 'switch: ';
+  }
+
+  private rommonCount = 1;
 
   /** The prompt shown before user input (or the pending question). */
   promptText(): string {
     if (this.client) return this.client.promptText();
     if (this.pending) return this.pending.prompt;
+    if (this.device.rommon && !this.isRemote && !this.booting) return this.rommonPrompt;
     if (this.idle) return '';
     const host = this.device.running.hostname;
     switch (this.mode) {
@@ -1182,6 +1207,14 @@ export class CliSession {
         return `${host}(config-router-af-topology)#`;
       case 'archive':
         return `${host}(config-archive)#`;
+      case 'timerange':
+        return `${host}(config-time-range)#`;
+      case 'macl':
+        return `${host}(config-ext-macl)#`;
+      case 'vacl':
+        return `${host}(config-access-map)#`;
+      case 'arpacl':
+        return `${host}(config-arp-nacl)#`;
       case 'acl':
         return `${host}(config-${this.aclType === 'standard' ? 'std' : 'ext'}-nacl)#`;
     }
@@ -1202,8 +1235,21 @@ export class CliSession {
     if (this.wasBooting) {
       this.wasBooting = false;
       this.reset();
+      const notes = this.device.bootNotes ?? [];
+      if (this.device.rommon) {
+        this.rommonCount = 1;
+        const sw = this.device.kind !== 'router';
+        return [
+          '',
+          ...notes,
+          sw ? 'boot: cannot determine first executable file found on device "flash:"' : 'boot: cannot determine first file name on device "flash:"',
+          '',
+          sw ? 'The system is ignoring the BOOT path. Use the boot command to load an image.' : 'System Bootstrap, Version 15.1(4)M4, RELEASE SOFTWARE (fc1)',
+          '',
+        ];
+      }
       this.idle = true;
-      return ['', `${this.device.running.hostname} con0 is now available`, '', 'Press RETURN to get started!', ''];
+      return ['', ...notes, `${this.device.running.hostname} con0 is now available`, '', 'Press RETURN to get started!', ''];
     }
     return [];
   }
@@ -1230,6 +1276,10 @@ export class CliSession {
     this.lastActivity = this.net.time;
     if (this.bannerBuffer) {
       this.continueBanner(line);
+      return result;
+    }
+    if (this.device.rommon && !this.isRemote) {
+      this.rommonInput(line.trim(), out);
       return result;
     }
     if (this.pending) {
@@ -1465,6 +1515,75 @@ export class CliSession {
     return logs.filter((l) => severityOf(l.message) <= max).map((l) => (l.stamp === '' ? l.message : `${l.stamp ?? this.net.formatLogTime(l.time)}: ${l.message}`));
   }
 
+  /** ROMMON: the bootloader's own small command set, for when no image would boot. */
+  private rommonInput(line: string, out: string[]): void {
+    const d = this.device;
+    const sw = d.kind !== 'router';
+    if (!line) return;
+    this.rommonCount++;
+    const [cmd, ...args] = line.split(/\s+/);
+    const vars = (d.rommonVars ??= {});
+    const assign = /^([A-Z_]+)=(\S*)$/.exec(line);
+    if (assign) {
+      vars[assign[1]] = assign[2];
+      return;
+    }
+    const lc = cmd.toLowerCase();
+    if (lc === 'set') {
+      for (const [k, v] of Object.entries(vars)) out.push(`${k}=${v}`);
+      return;
+    }
+    if (lc === 'dir') {
+      if ((args[0] ?? '').toLowerCase() !== 'flash:') return void out.push(sw ? 'usage: dir <filesys:>' : 'usage: dir <device>');
+      out.push('Directory of flash:', '');
+      Object.entries(d.images ?? {}).forEach(([n, i], k) => out.push(`${String(k + 2).padStart(4)}  -rwx  ${String(i.size).padStart(10)}  <date>               ${n}`));
+      out.push('', `${flashFree(d)} bytes available (${flashUsed(d)} bytes used)`);
+      return;
+    }
+    if (lc === 'boot' || lc === 'reset') {
+      if (lc === 'reset' || !args[0]) return void this.net.reload(d.id);
+      const name = args[0].replace(/^flash:\/?/i, '');
+      if (!bootable(d, name)) {
+        out.push(`Error loading "${args[0]}"`, '');
+        return;
+      }
+      out.push(`Loading "${args[0]}"...@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`, '');
+      d.image = name;
+      d.rommon = false;
+      d.bootNotes = [];
+      d.bootingUntil = this.net.time + BOOT_TIME_MS;
+      this.wasBooting = true;
+      this.net.commit();
+      return;
+    }
+    if (sw && lc === 'copy' && args[0]?.toLowerCase() === 'xmodem:' && args[1]) {
+      // Xmodem over the console cable from the NOC laptop: it works, it just takes ages at 9600 baud.
+      const name = args[1].replace(/^flash:\/?/i, '');
+      const src = [...this.net.devices.values()].find((x) => x.tftpd)?.images?.[name];
+      out.push('Begin the Xmodem or Xmodem-1K transfer now...');
+      if (!src) return void out.push('Xmodem transfer aborted (no file sent)', '');
+      if (src.size > flashFree(d)) return void out.push(`Error: not enough space on flash: (${flashFree(d)} bytes free)`, '');
+      (d.images ??= {})[name] = { ...src };
+      (d.imageTimes ??= {})[name] = this.net.time;
+      out.push(`CC...........(${Math.round(src.size / 960 / 60)} minutes at 9600 baud)`, `File "flash:${name}" successfully copied`, '');
+      return;
+    }
+    if (!sw && lc === 'tftpdnld') {
+      const need = ['IP_ADDRESS', 'IP_SUBNET_MASK', 'DEFAULT_GATEWAY', 'TFTP_SERVER', 'TFTP_FILE'];
+      const missing = need.filter((k) => !vars[k]);
+      if (missing.length) return void out.push(...missing.map((k) => `Missing or illegal ip address for variable ${k}`), 'Illegal IP address.', '', 'usage: tftpdnld [-hr]');
+      const server = [...this.net.devices.values()].find((x) => x.tftpd && Object.values(x.running.interfaces).some((i) => i.ip && formatIp(i.ip.address) === vars.TFTP_SERVER));
+      const img = server?.images?.[vars.TFTP_FILE];
+      out.push('', '          IP_ADDRESS: ' + vars.IP_ADDRESS, '      IP_SUBNET_MASK: ' + vars.IP_SUBNET_MASK, '     DEFAULT_GATEWAY: ' + vars.DEFAULT_GATEWAY, '         TFTP_SERVER: ' + vars.TFTP_SERVER, '           TFTP_FILE: ' + vars.TFTP_FILE, '', 'Invoke this command for disaster recovery only.', 'WARNING: all existing data in all partitions on flash: will be lost!');
+      if (!img) return void out.push('Receiving ' + vars.TFTP_FILE + ' from ' + vars.TFTP_SERVER + ' ', 'TFTP failed: timed out', '');
+      d.images = { [vars.TFTP_FILE]: { ...img } };
+      d.files = {};
+      out.push('Receiving ' + vars.TFTP_FILE + ' from ' + vars.TFTP_SERVER + ' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!', 'File reception completed.', 'Copying file ' + vars.TFTP_FILE + ' to flash.', 'Program flash location 0x60000000', '');
+      return;
+    }
+    out.push(sw ? `unknown cmd: ${cmd}` : `monitor: command "${cmd}" not found`);
+  }
+
   /** exec-timeout: an idle EXEC session is logged out (the console goes back to "Press RETURN"). */
   private timedOut(): string[] | null {
     if (this.idle || this.closed || this.booting) return null;
@@ -1493,6 +1612,11 @@ export class CliSession {
     this.aclContext = name;
     this.aclType = type;
     this.mode = 'acl';
+  }
+
+  enterSub(mode: 'timerange' | 'macl' | 'vacl' | 'arpacl', name: string, seq?: number): void {
+    this.subContext = { name, seq };
+    this.mode = mode;
   }
 
   enterVlan(id: number): void {

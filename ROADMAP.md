@@ -241,6 +241,18 @@ error messages, the faults it can cause, and ticket templates that use it.
          Office: the predecessor left `exec-timeout 0 0` on CR-RTR1/CR-CORE1 and a clear-text `username backup` on the
          router. Tickets: duplex mismatch to a server, rogue device hunt by MAC, config backups request, edge-router
          hardening audit
+  10. [x] Security: the rest of the ACL family (time-based with `time-range` periodic/absolute on the device clock,
+         reflexive `reflect`/`evaluate`, port ACLs inbound on switchports, VLAN access maps with `vlan filter` and the
+         implicit drop, MAC ACLs (non-IP only), `ip access-list resequence`, `show time-range`); DHCP snooping (trust,
+         bindings from real leases, option 82 with zero giaddr dropped by an untrusting relay, `ip dhcp relay
+         information trusted|trust-all`, rogue DHCP servers silenced on untrusted ports); dynamic ARP inspection
+         (bindings, ARP ACLs and `filter ... static`, trust, 15 pps limit err-disabling an untrusted uplink, DENY
+         logs); IP source guard and `ip source binding`; NSOS images (versioned files on flash and the NOC TFTP root,
+         `copy tftp: flash:` with space checks, `verify /md5`, `delete`, `boot system`, `show boot`, `reload in|at|
+         cancel`, `show reload`, boot fallback to the first good image, ROMMON with `dir`/`boot`/xmodem/`tftpdnld`).
+         Tickets: unused ports, enable/console passwords, snooping rollout, DAI rollout (expert), NSOS upgrade from
+         a vendor advisory (filename, size and MD5 given), guest hours time-range, rogue DHCP server, DAI vs static
+         printers, option 82 outage
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
   - L3: wrong gateway, wrong IP/mask, missing static route, OSPF neighbor down (area/timers/passive), ACL blocking traffic

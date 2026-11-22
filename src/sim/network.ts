@@ -10,6 +10,8 @@ import type { Ipv4 } from './ip';
 import { logStamp, syslogDelivered } from './mgmt';
 import { computeBundles, computeStp, evaluatePortSecurity, syncVtp, type Bundle, type StpResult } from './l2';
 import { logControlChanges } from './control';
+import { daiRateViolations } from './security';
+import { chooseBootImage } from './images';
 
 export interface LogEntry {
   seq: number;
@@ -111,6 +113,11 @@ export class Network {
   advance(ms: number): void {
     this.time += ms;
     this.countDuplexErrors(ms);
+    for (const d of this.devices.values()) {
+      if (d.reloadAt === undefined || this.time < d.reloadAt) continue;
+      this.log(d.id, '%SYS-5-RELOAD: Reload requested by console. Reload Reason: Reload Command.');
+      this.reload(d.id);
+    }
     let changed = false;
     for (const device of this.devices.values()) {
       if (device.bootingUntil !== null && this.time >= device.bootingUntil) {
@@ -213,7 +220,7 @@ export class Network {
   }
 
   isOnline(device: Device): boolean {
-    return device.powered && device.bootingUntil === null;
+    return device.powered && device.bootingUntil === null && !device.rommon;
   }
 
   /** Reboots a device: running config is replaced by startup config (or factory defaults). */
@@ -221,6 +228,16 @@ export class Network {
     const device = this.device(deviceId);
     device.running = device.startup ? cloneConfig(device.startup) : factoryConfig(MODELS[device.model]);
     device.bootingUntil = this.time + BOOT_TIME_MS;
+    delete device.reloadAt;
+    // Which NSOS image loads: boot system entries, then the first good image on flash, else ROMMON.
+    if (device.images) {
+      const boot = chooseBootImage(this, device);
+      device.bootNotes = boot.messages;
+      if (boot.image) {
+        device.image = boot.image;
+        device.rommon = false;
+      } else device.rommon = true;
+    }
     device.arp.clear();
     // A manually set clock doesn't survive a reload (there's no battery-backed calendar on these models).
     delete device.clockOffset;
@@ -317,10 +334,33 @@ export class Network {
     this.l2Events = new Set([...fresh].filter((e) => !e.includes('%PM-4-ERR_DISABLE') && !e.includes('BLOCK_BPDUGUARD')));
     this.expireArp();
     this.version++;
+    this.vlanFilterCache = null;
     if (!options.silent) {
       this.emitStateLogs(previous);
       logControlChanges(this);
     }
+    // Dynamic ARP inspection rate limits: an untrusted port facing a whole floor's ARP gets err-disabled.
+    const dai = daiRateViolations(this);
+    if (dai.length) {
+      const ev: string[] = [];
+      for (const v of dai) {
+        ev.push(`${v.device}|%SW_DAI-4-PACKET_RATE_EXCEEDED: ${v.pps} packets received in 1000 milliseconds on ${shortIfName(v.iface)}.`);
+        this.errDisable(v.device, v.iface, 'arp-inspection', ev);
+      }
+      for (const e of ev) {
+        const i = e.indexOf('|');
+        this.log(e.slice(0, i), e.slice(i + 1));
+      }
+      this.commit(options);
+    }
+  }
+
+  private vlanFilterCache: Device[] | null = null;
+
+  /** Switches with a `vlan filter` applied (so packet walks can skip the VLAN map check when there are none). */
+  devicesWithVlanFilters(): Device[] {
+    this.vlanFilterCache ??= [...this.devices.values()].filter((d) => d.running.vlanFilters?.length);
+    return this.vlanFilterCache;
   }
 
   state(deviceId: string, iface: string): InterfaceState {

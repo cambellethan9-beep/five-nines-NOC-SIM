@@ -8,6 +8,7 @@
 //
 // VLAN 10 STAFF 10.10.10.0/24 | VLAN 20 SERVERS 10.10.20.0/24 | VLAN 30 PRINTERS 10.10.30.0/24 | VLAN 99 MGMT 10.10.99.0/24
 
+import { anyImage, installImage, RELEASES } from '../sim/images';
 import { createDevice, DEFAULT_ADMIN_USER, defaultInterfaceConfig } from '../sim/devices';
 import type { HostOptions } from '../sim/host';
 import { maskToPrefix, parseIp } from '../sim/ip';
@@ -409,6 +410,10 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   net.connect('noc', nic(noc), 'core1', 'FastEthernet0/10');
   // The NOC PC runs a TFTP server (nothing has ever been backed up to it).
   noc.tftpd = true;
+  // NSOS: everything still runs the release it shipped with; the newer images were downloaded to the NOC PC's
+  // TFTP root ahead of an upgrade nobody scheduled.
+  for (const id of ['rtr1', 'core1', 'acc1', 'acc2']) installImage(net.device(id));
+  noc.images = Object.fromEntries(Object.values(RELEASES).flat().map((r) => [r.file, anyImage(r.file)!]));
 
   for (const id of ['rtr1', 'core1', 'acc1', 'acc2']) inheritedSsh(net.device(id), net.rng.int(1000, 9999));
   // The predecessor hated being logged out, and kept a clear-text break-glass account on the router.

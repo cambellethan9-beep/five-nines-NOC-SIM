@@ -1,7 +1,9 @@
 // ACL commands: `access-list N ...`, `ip access-list standard|extended NAME` (and its sub-mode),
 // `ip access-group` on interfaces, `access-class` on vty lines, and the show/clear commands.
 
-import { addEntry, isExtendedNumber, isStandardNumber, parseEntry, showAcl, type Acl, type AclType } from '../acl';
+import { addEntry, isExtendedNumber, isStandardNumber, parseEntry, rangeActive, reflexiveNames, resequence, showAcl, type Acl, type AclType } from '../acl';
+import { aclEnv } from '../routing';
+import { macEntryText, timeRangeLines } from './securityCommands';
 import { formatIp } from '../ip';
 import { caret, commit, type Ctx, type Tree } from './context';
 import type { Args } from './parser';
@@ -57,7 +59,7 @@ function addText(c: Ctx, acl: Acl, text: string, at: number, seq?: number): void
     addEntry(acl, { remark }, seq);
     return commit(c);
   }
-  const r = parseEntry(acl.type, text, at);
+  const r = parseEntry(acl.type, text, at, { named: acl.named });
   if (!r.ok) {
     if (r.incomplete) c.out.push('% Incomplete command.', '');
     else caret(c, r.caret);
@@ -102,6 +104,12 @@ export function addAclGlobal(t: Tree): void {
     if (acl && acl.type === type) delete acls(c)[acl.name];
     commit(c);
   };
+  t.add('ip access-list resequence <word:name> <number:start:1-2147483647> <number:step:1-2147483647>', { ...HA, resequence: 'Resequence Access List', start: 'Starting Sequence Number', step: 'Step to increment the sequence number' }, (c, a) => {
+    const acl = acls(c)[a.name as string];
+    if (!acl) return void c.out.push(`% Access list ${a.name} does not exist`);
+    resequence(acl, a.start as number, a.step as number);
+    commit(c);
+  });
   t.add('no ip access-list standard <word:name>', HA, remove('standard'));
   t.add('no ip access-list extended <word:name>', HA, remove('extended'));
 }
@@ -130,6 +138,17 @@ export function addAclMode(t: Tree): void {
     l.entries = l.entries.filter((e) => JSON.stringify({ ...e, seq: undefined }) !== key);
     commit(c);
   };
+  t.add('evaluate <word:name>', { ...HA, evaluate: 'Evaluate an access list', name: 'IP reflexive access list name' }, (c, a) => {
+    const l = acl(c);
+    if (l.type !== 'extended' || !l.named) return caret(c, 0);
+    addEntry(l, { evaluate: a.name as string });
+    commit(c);
+  });
+  t.add('no evaluate <word:name>', HA, (c, a) => {
+    const l = acl(c);
+    l.entries = l.entries.filter((e) => e.evaluate !== a.name);
+    commit(c);
+  });
   t.add('no permit <line:rest>', HA, removeMatching('permit'));
   t.add('no deny <line:rest>', HA, removeMatching('deny'));
 }
@@ -139,7 +158,8 @@ export function addAclInterface(t: Tree): void {
     for (const name of c.s.ifContext) {
       const ifc = c.dev.running.interfaces[name];
       if (!ifc) continue;
-      if (ifc.switchport) return caret(c, 3); // under "access-group": L2 ports don't take this here
+      // On a switchport this is a port ACL, which filters inbound traffic only.
+      if (ifc.switchport && dir === 'out') return void c.out.push('% Out ACLs are not supported on Layer 2 interfaces');
       ifc.accessGroup = { ...ifc.accessGroup, [dir]: String(a.name) };
     }
     commit(c);
@@ -166,22 +186,31 @@ export function addAclLine(t: Tree): void {
   t.add('no access-class in', HA, (c) => void (line(c).accessClass = null));
 }
 
-function showAll(c: Ctx, name?: string): void {
+function showAll(c: Ctx, name?: string, ipOnly = false): void {
   const all = Object.values(c.dev.running.acls ?? {}).filter((a) => name === undefined || a.name === name);
   const hits = c.dev.aclHits ?? {};
+  const env = aclEnv(c.net, c.dev);
   const sorted = all.sort((a, b) => {
     const na = /^\d+$/.test(a.name) ? Number(a.name) : Infinity;
     const nb = /^\d+$/.test(b.name) ? Number(b.name) : Infinity;
     return na - nb || a.name.localeCompare(b.name);
   });
-  for (const acl of sorted) c.out.push(...showAcl(acl, hits));
+  for (const acl of sorted) c.out.push(...showAcl(acl, hits, env));
+  for (const r of reflexiveNames(c.dev.running.acls ?? {})) if (name === undefined || name === r) c.out.push(`Reflexive IP access list ${r}`);
+  if (ipOnly) return;
+  for (const m of Object.values(c.dev.running.macAcls ?? {})) {
+    if (name !== undefined && m.name !== name) continue;
+    c.out.push(`Extended MAC access list ${m.name}`, ...m.entries.map((e) => `    ${macEntryText(e)}`));
+  }
 }
 
 export function addAclShows(t: Tree, privileged: boolean): void {
   t.add('show access-lists', HA, (c) => showAll(c));
   t.add('show access-lists <word:name>', HA, (c, a) => showAll(c, String(a.name)));
-  t.add('show ip access-lists', HA, (c) => showAll(c));
-  t.add('show ip access-lists <word:name>', HA, (c, a) => showAll(c, String(a.name)));
+  t.add('show ip access-lists', HA, (c) => showAll(c, undefined, true));
+  t.add('show ip access-lists <word:name>', HA, (c, a) => showAll(c, String(a.name), true));
+  t.add('show time-range', { ...HA, 'time-range': 'Time range' }, (c) => c.out.push(...showTimeRanges(c)));
+  t.add('show time-range <word:name>', { ...HA, 'time-range': 'Time range' }, (c, a) => c.out.push(...showTimeRanges(c, String(a.name))));
   t.add('show ip interface <iface:if>', HA, (c, a) => {
     const ifc = c.dev.running.interfaces[a.if as string];
     if (!ifc) return caret(c, a['@if'] as number);
@@ -221,4 +250,16 @@ export function addAclShows(t: Tree, privileged: boolean): void {
       for (const k of Object.keys(hits)) if (k.startsWith(`${a.name}:`)) delete hits[k];
     });
   }
+}
+
+function showTimeRanges(c: Ctx, only?: string): string[] {
+  const out: string[] = [];
+  const now = aclEnv(c.net, c.dev).now!;
+  const used = new Set(Object.values(c.dev.running.acls ?? {}).flatMap((a) => a.entries.map((e) => e.timeRange).filter(Boolean)));
+  for (const [name, r] of Object.entries(c.dev.running.timeRanges ?? {})) {
+    if (only !== undefined && name !== only) continue;
+    out.push(`time-range entry: ${name} (${rangeActive(r, now) ? 'active' : 'inactive'})`, ...timeRangeLines(r).map((l) => `  ${l.trim()}`));
+    if (used.has(name)) out.push('   used in: IP ACL entry');
+  }
+  return out;
 }

@@ -10,6 +10,8 @@ export interface MacEntry {
   vlan: number;
   mac: string;
   port: string;
+  /** Full name of the port (the port-channel for a bundled member). */
+  iface: string;
   type: 'DYNAMIC' | 'STATIC';
 }
 
@@ -30,12 +32,29 @@ function macOfNode(net: Network, node: string): string | null {
   return d.hardware[parentIfName(iface) ?? iface]?.mac ?? d.baseMac;
 }
 
-function portLabel(net: Network, d: Device, iface: string): string {
-  for (const b of net.bundles.values()) if (b.device === d.id && b.bundled.includes(iface)) return shortIfName(b.po);
-  return shortIfName(iface);
+function portName(net: Network, d: Device, iface: string): string {
+  for (const b of net.bundles.values()) if (b.device === d.id && b.bundled.includes(iface)) return b.po;
+  return iface;
 }
 
-export function macTable(net: Network, deviceId: string): MacEntry[] {
+const cache = new WeakMap<Network, { version: number; tables: Map<string, MacEntry[]> }>();
+
+/** Every station's port on this switch, from live L2 state (cached until the network changes). */
+export function rawMacTable(net: Network, deviceId: string): MacEntry[] {
+  let c = cache.get(net);
+  if (!c || c.version !== net.version) {
+    c = { version: net.version, tables: new Map() };
+    cache.set(net, c);
+  }
+  let t = c.tables.get(deviceId);
+  if (!t) {
+    t = computeMacTable(net, deviceId);
+    c.tables.set(deviceId, t);
+  }
+  return t;
+}
+
+function computeMacTable(net: Network, deviceId: string): MacEntry[] {
   const d = net.device(deviceId);
   const entries: MacEntry[] = [];
   const seen = new Set<string>();
@@ -46,7 +65,8 @@ export function macTable(net: Network, deviceId: string): MacEntry[] {
       if (!ifc.switchport || !d.hardware[ifc.name] || !net.isUp(deviceId, ifc.name)) continue;
       const link = net.linkAt(deviceId, ifc.name);
       if (!link) continue;
-      const port = portLabel(net, d, ifc.name);
+      const full = portName(net, d, ifc.name);
+      const port = shortIfName(full);
       for (const [channel, node] of net.channels(d, ifc)) {
         if (node !== start) continue;
         const peer = link.a.device === deviceId ? link.b : link.a;
@@ -67,7 +87,7 @@ export function macTable(net: Network, deviceId: string): MacEntry[] {
             if (!seen.has(k)) {
               seen.add(k);
               const psec = ifc.portSecurity?.enabled && (ifc.portSecurity.stickyMacs.includes(mac) || ifc.portSecurity.macs.includes(mac));
-              entries.push({ vlan, mac, port, type: psec ? 'STATIC' : 'DYNAMIC' });
+              entries.push({ vlan, mac, port, iface: full, type: psec ? 'STATIC' : 'DYNAMIC' });
             }
             continue;
           }
@@ -94,10 +114,14 @@ export function macTable(net: Network, deviceId: string): MacEntry[] {
       }
     }
   }
+  return entries.sort((a, b) => a.vlan - b.vlan || a.mac.localeCompare(b.mac));
+}
+
+export function macTable(net: Network, deviceId: string): MacEntry[] {
+  const entries = rawMacTable(net, deviceId);
   // After a flush, stations come back as they send traffic (chatty PCs within seconds, quiet printers later).
-  const cleared = d.macClearedAt;
-  const visible = cleared === undefined ? entries : entries.filter((e) => e.type === 'STATIC' || net.time - cleared >= (hash(e.mac) % 40) * 1000 + 2000);
-  return visible.sort((a, b) => a.vlan - b.vlan || a.mac.localeCompare(b.mac));
+  const cleared = net.device(deviceId).macClearedAt;
+  return cleared === undefined ? entries : entries.filter((e) => e.type === 'STATIC' || net.time - cleared >= (hash(e.mac) % 40) * 1000 + 2000);
 }
 
 export interface MacFilter {
