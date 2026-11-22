@@ -1,5 +1,6 @@
 // Text output for IOS show commands. Formats follow real IOS output closely, so what players learn transfers.
 
+import { aclConfigLines } from './acl';
 import { cdpIfName, compareIfNames, shortIfName } from './ifnames';
 import { classfulPrefix, formatIp, prefixToMask } from './ip';
 import type { Network } from './network';
@@ -109,6 +110,8 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     }
     if (!sp) {
       lines.push(ifc.ip ? ` ip address ${formatIp(ifc.ip.address)} ${formatIp(prefixToMask(ifc.ip.prefix))}` : ' no ip address');
+      if (ifc.accessGroup?.in) lines.push(` ip access-group ${ifc.accessGroup.in} in`);
+      if (ifc.accessGroup?.out) lines.push(` ip access-group ${ifc.accessGroup.out} out`);
       for (const h of ifc.helpers ?? []) lines.push(` ip helper-address ${formatIp(h)}`);
     }
     const physical = device.hardware[ifc.name] !== undefined;
@@ -127,6 +130,8 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     );
   }
   if (config.staticRoutes.length || config.defaultGateway !== null) lines.push('!');
+  const aclLines = aclConfigLines(config.acls ?? {});
+  if (aclLines.length) lines.push(...aclLines, '!');
   if (config.bannerMotd !== null) lines.push(`banner motd ^C${config.bannerMotd}^C`, '!');
   lines.push('line con 0', ...renderLine(config.lines.con, false));
   const vty = renderLine(config.lines.vty, true);
@@ -136,6 +141,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
 
 function renderLine(line: LineConfig, isVty: boolean): string[] {
   const out: string[] = [];
+  if (line.accessClass) out.push(` access-class ${line.accessClass} in`);
   if (line.password) out.push(` password ${line.password}`);
   if (line.loggingSynchronous) out.push(' logging synchronous');
   if (line.login === 'local') out.push(' login local');

@@ -1,6 +1,7 @@
 // Layer 3: routing tables, ARP resolution and the hop-by-hop packet walk used by ping/traceroute.
 // The sim models state, not packets: a "packet" is a lookup walk across devices.
 
+import { evaluate, type Packet } from './acl';
 import { formatIp, inSubnet, networkOf, type Ipv4 } from './ip';
 import type { Network } from './network';
 import type { Device } from './types';
@@ -197,7 +198,57 @@ export interface Hop {
   ingressIp: Ipv4 | null;
 }
 
-export type WalkFailure = 'no-route' | 'arp' | 'ttl';
+export type WalkFailure = 'no-route' | 'arp' | 'ttl' | 'acl';
+
+/** What kind of traffic a walk carries, so ACLs can match it. Addresses are filled in by the walk. */
+export type PacketSpec = Omit<Packet, 'src' | 'dst'>;
+
+/** An application flow: protocol and destination port. Replies are derived from it. */
+export interface Flow {
+  proto: 'icmp' | 'tcp' | 'udp' | 'ospf' | 'eigrp';
+  port?: number;
+}
+
+/** Ephemeral source port clients use (any value in the dynamic range behaves the same for ACLs). */
+export const EPHEMERAL_PORT = 51034;
+
+export function forwardPacket(flow: Flow): PacketSpec {
+  if (flow.proto === 'icmp') return { proto: 'icmp', icmpType: 'echo' };
+  if (flow.proto === 'tcp' || flow.proto === 'udp') return { proto: flow.proto, srcPort: EPHEMERAL_PORT, dstPort: flow.port };
+  return { proto: flow.proto };
+}
+
+export function replyPacket(flow: Flow): PacketSpec {
+  if (flow.proto === 'icmp') return { proto: 'icmp', icmpType: 'echo-reply' };
+  if (flow.proto === 'tcp') return { proto: 'tcp', srcPort: flow.port, dstPort: EPHEMERAL_PORT, established: true };
+  if (flow.proto === 'udp') return { proto: 'udp', srcPort: flow.port, dstPort: EPHEMERAL_PORT };
+  return { proto: flow.proto };
+}
+
+export const PING: Flow = { proto: 'icmp' };
+
+export interface WalkOptions {
+  packet?: PacketSpec;
+  /** Source address of the packet (defaults to the address the origin would use). */
+  src?: Ipv4;
+  /** Count ACL hits (real traffic). */
+  count?: boolean;
+}
+
+/** Applies the ACL bound to an interface in one direction. Undefined or empty ACLs permit everything. */
+export function aclPermits(device: Device, iface: string, dir: 'in' | 'out', pkt: Packet, count: boolean): boolean {
+  const name = device.running.interfaces[iface]?.accessGroup?.[dir];
+  if (!name) return true;
+  const acl = device.running.acls?.[name];
+  if (!acl || !acl.entries.some((e) => e.remark === undefined)) return true;
+  const r = evaluate(acl, pkt);
+  if (count && r.seq !== null) {
+    const hits = (device.aclHits ??= {});
+    const key = `${name}:${r.seq}`;
+    hits[key] = (hits[key] ?? 0) + 1;
+  }
+  return r.permit;
+}
 
 export interface WalkResult {
   delivered: boolean;
@@ -207,20 +258,30 @@ export interface WalkResult {
   failure?: WalkFailure;
   /** True if any device on the path had to ARP (first ping packet is lost). */
   arpMiss: boolean;
+  /** For 'acl' failures: the interface whose ACL dropped the packet. */
+  aclIface?: string;
 }
 
 /**
  * Walks a packet from `fromDevice` toward `dest`, hop by hop.
  * Updates ARP caches unless `learn` is false (used for silent checks the player doesn't see).
  */
-export function walk(net: Network, fromDevice: string, dest: Ipv4, maxHops = 30, learn = true): WalkResult {
+export function walk(net: Network, fromDevice: string, dest: Ipv4, maxHops = 30, learn = true, opts: WalkOptions = {}): WalkResult {
   const hops: Hop[] = [];
   let current = net.device(fromDevice);
   let arpMiss = false;
+  const spec = opts.packet ?? forwardPacket(PING);
+  const src = opts.src ?? sourceAddressFor(net, current, dest);
+  const pkt: Packet | null = src === null ? null : { ...spec, src, dst: dest };
+  const count = opts.count ?? learn;
   for (let ttl = 0; ttl < maxHops; ttl++) {
     if (ownsAddress(net, current, dest)) return { delivered: true, hops, arpMiss };
     const decision = forwardingDecision(net, current, dest);
     if (!decision) return { delivered: false, hops, failedAt: current.id, failure: 'no-route', arpMiss };
+    // Outbound ACLs filter transit traffic only; IOS doesn't apply them to packets the router originates.
+    if (pkt && ttl > 0 && !aclPermits(current, decision.egress, 'out', pkt, count)) {
+      return { delivered: false, hops, failedAt: current.id, failure: 'acl', arpMiss, aclIface: decision.egress };
+    }
     const target = arpResolve(net, current.id, decision.egress, decision.nextHop, decision.viaInterfaceOnly);
     if (!target) return { delivered: false, hops, failedAt: current.id, failure: 'arp', arpMiss };
 
@@ -238,6 +299,9 @@ export function walk(net: Network, fromDevice: string, dest: Ipv4, maxHops = 30,
     const next = net.device(target.device);
     const ingressIp = next.running.interfaces[target.iface]?.ip?.address ?? null;
     hops.push({ device: next.id, ingress: target.iface, ingressIp });
+    if (pkt && !aclPermits(next, target.iface, 'in', pkt, count)) {
+      return { delivered: false, hops, failedAt: next.id, failure: 'acl', arpMiss, aclIface: target.iface };
+    }
     current = next;
   }
   return { delivered: false, hops, failedAt: current.id, failure: 'ttl', arpMiss };
@@ -247,13 +311,13 @@ export function walk(net: Network, fromDevice: string, dest: Ipv4, maxHops = 30,
  * Can `fromDevice` exchange traffic with `dest` (both directions)? Has no side effects.
  * This is what ticket verification uses: it checks the outcome, not which commands fixed it.
  */
-export function canReach(net: Network, fromDevice: string, dest: Ipv4): boolean {
+export function canReach(net: Network, fromDevice: string, dest: Ipv4, flow: Flow = PING, count = false): boolean {
   const srcIp = sourceAddressFor(net, net.device(fromDevice), dest);
   if (srcIp === null) return false;
-  const forward = walk(net, fromDevice, dest, 30, false);
+  const forward = walk(net, fromDevice, dest, 30, false, { packet: forwardPacket(flow), src: srcIp, count });
   if (!forward.delivered) return false;
   const destDevice = forward.hops.length ? forward.hops[forward.hops.length - 1].device : fromDevice;
-  return walk(net, destDevice, srcIp, 30, false).delivered;
+  return walk(net, destDevice, srcIp, 30, false, { packet: replyPacket(flow), src: dest, count }).delivered;
 }
 
 /** The source address a device uses when it originates traffic toward `dest`. */
@@ -277,20 +341,21 @@ export interface PingResult {
 export function ping(net: Network, fromDevice: string, dest: Ipv4, count = 5): PingResult {
   const source = net.device(fromDevice);
   const srcIp = sourceAddressFor(net, source, dest);
-  const forward = walk(net, fromDevice, dest);
+  const forward = walk(net, fromDevice, dest, 30, true, { packet: forwardPacket(PING) });
   let marks: string;
   let destDevice: string | null = null;
   if (!forward.delivered) {
-    // A router along the path that has no route answers with ICMP unreachable (rate-limited: U.U.U).
+    // A router along the path that has no route (or whose ACL denies the echo) answers with ICMP
+    // unreachable, rate-limited: U.U.U
     const unreachable =
-      forward.failure === 'no-route' &&
+      (forward.failure === 'no-route' || forward.failure === 'acl') &&
       forward.failedAt !== fromDevice &&
       srcIp !== null &&
-      walk(net, forward.failedAt!, srcIp).delivered;
+      walk(net, forward.failedAt!, srcIp, 30, true, { packet: { proto: 'icmp', icmpType: 'unreachable' } }).delivered;
     marks = (unreachable ? 'U.' : '..').repeat(count).slice(0, count);
   } else {
     destDevice = forward.hops.length ? forward.hops[forward.hops.length - 1].device : fromDevice;
-    const back = srcIp === null ? null : walk(net, destDevice, srcIp);
+    const back = srcIp === null ? null : walk(net, destDevice, srcIp, 30, true, { packet: replyPacket(PING), src: dest });
     if (!back || !back.delivered) marks = '.'.repeat(count);
     else if (forward.arpMiss || back.arpMiss) marks = '.' + '!'.repeat(count - 1);
     else marks = '!'.repeat(count);
@@ -306,13 +371,17 @@ export interface TraceHop {
   /** null when no reply came back ("* * *"). */
   address: Ipv4 | null;
   unreachable: boolean;
+  /** Why it was unreachable: H = no route to host, A = administratively prohibited (an ACL). */
+  code?: 'H' | 'A';
   rttMs: number[];
 }
 
-export function traceroute(net: Network, fromDevice: string, dest: Ipv4, maxTtl = 30): TraceHop[] {
+/** IOS traceroute sends UDP probes to high ports; Windows tracert sends ICMP echoes. */
+export function traceroute(net: Network, fromDevice: string, dest: Ipv4, maxTtl = 30, style: 'ios' | 'windows' = 'ios'): TraceHop[] {
   const source = net.device(fromDevice);
   const srcIp = sourceAddressFor(net, source, dest);
-  const forward = walk(net, fromDevice, dest, maxTtl);
+  const probe: PacketSpec = style === 'ios' ? { proto: 'udp', srcPort: 49152, dstPort: 33434 } : forwardPacket(PING);
+  const forward = walk(net, fromDevice, dest, maxTtl, true, { packet: probe });
   const result: TraceHop[] = [];
   const rtt = (n: number) => [0, 1, 2].map(() => n + net.rng.int(0, n + 1));
   forward.hops.forEach((hop, i) => {
@@ -322,11 +391,19 @@ export function traceroute(net: Network, fromDevice: string, dest: Ipv4, maxTtl 
     result.push({ ttl: i + 1, address: canReply ? replyFrom : null, unreachable: false, rttMs: rtt(i + 1) });
   });
   if (forward.delivered) return result;
+  if (forward.failure === 'acl' && srcIp !== null && forward.hops.length) {
+    // The filtering router answers "administratively prohibited" in place of the hop it would have shown.
+    const last = result[result.length - 1];
+    last.address = forward.hops[forward.hops.length - 1].ingressIp;
+    last.unreachable = true;
+    last.code = 'A';
+    return result;
+  }
   if (forward.failure === 'no-route' && forward.failedAt !== fromDevice && srcIp !== null) {
     const failed = net.device(forward.failedAt!);
     const lastHop = forward.hops[forward.hops.length - 1];
     if (walk(net, failed.id, srcIp).delivered) {
-      result.push({ ttl: result.length + 1, address: lastHop.ingressIp, unreachable: true, rttMs: rtt(result.length + 1) });
+      result.push({ ttl: result.length + 1, address: lastHop.ingressIp, unreachable: true, code: 'H', rttMs: rtt(result.length + 1) });
       return result;
     }
   }

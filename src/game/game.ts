@@ -16,7 +16,7 @@ import { isHostKind, type Device } from '../sim/types';
 import { Chat, type ChatState } from './chat';
 import { TicketQueue, type QueueState, type Ticket } from './queue';
 import { pointsBar, RANKS, RULES, streakAfterMiss, streakBonus } from './scoring';
-import { serviceHealth, SERVICES, type ServiceHealth } from './services';
+import { reachService, serviceHealth, SERVICES, type ServiceHealth } from './services';
 
 /** Walking to a different console costs this much game time. */
 export const WALK_MS = 30_000;
@@ -532,7 +532,7 @@ export class Game {
   }
 
   tutorialSolved(): boolean {
-    return canReach(this.net, this.office.tutorial.pcId, parseIp('10.10.20.11')!);
+    return reachService(this.net, this.office.tutorial.pcId, '10.10.20.11');
   }
 
   /** Who is involved in a ticket, for the detail view. */

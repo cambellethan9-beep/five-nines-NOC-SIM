@@ -47,7 +47,7 @@ function findServer(net: Network, pc: Device): Offer | null {
       const helpers = device.running.interfaces[ifc.name]?.helpers ?? [];
       for (const helper of helpers) {
         const server = [...net.devices.values()].find((d) => d.dhcpServer && net.isOnline(d) && ownsAddress(net, d, helper));
-        if (!server || !canReach(net, device.id, helper)) continue;
+        if (!server || !canReach(net, device.id, helper, { proto: 'udp', port: 67 })) continue;
         const scope = server.dhcpServer!.scopes.find((s) => inSubnet(ifc.address, s.network, s.prefix));
         if (scope) return { scope, serverIp: helper };
       }

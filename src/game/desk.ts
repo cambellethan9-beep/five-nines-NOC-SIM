@@ -4,7 +4,7 @@
 import { dhcpRequest } from '../sim/dhcp';
 import { formatIp, inSubnet, maskToPrefix, parseIp, prefixToMask } from '../sim/ip';
 import type { Network } from '../sim/network';
-import { canReach } from '../sim/routing';
+import { reachService } from './services';
 import { CURRENT_NIC_DRIVER, type Device } from '../sim/types';
 
 const NIC = 'FastEthernet0';
@@ -21,7 +21,7 @@ export function deskStatus(net: Network, pc: Device): NetStatus {
   if (!link || link.cable === 'unplugged') return 'unplugged';
   if (!net.isUp(pc.id, NIC)) return 'disconnected';
   if (pc.hostNet?.apipa) return 'unidentified';
-  return canReach(net, pc.id, parseIp('8.8.8.8')!) ? 'connected' : 'no-internet';
+  return reachService(net, pc.id, '8.8.8.8') ? 'connected' : 'no-internet';
 }
 
 export interface BackOfPc {
@@ -91,7 +91,7 @@ export function updateDriver(net: Network, pc: Device, source: 'auto' | 'usb'): 
   const nic = pc.nic;
   if (!nic) return 'Nothing to update.';
   if (source === 'auto') {
-    if (!canReach(net, pc.id, parseIp('8.8.8.8')!)) {
+    if (!reachService(net, pc.id, '8.8.8.8')) {
       return "Windows couldn't search online for drivers. Check your internet connection and try again.";
     }
     if (nic.driver === 'ok') return 'The best drivers for your device are already installed.';

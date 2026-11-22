@@ -27,10 +27,12 @@ import { RemoteClient, type ClientOptions } from '../remote';
 import { ping, traceroute } from '../routing';
 import type { Device, DeviceKind, InterfaceConfig } from '../types';
 import { isSwitchKind } from '../types';
+import { addAclGlobal, addAclInterface, addAclLine, addAclMode, addAclShows } from './aclCommands';
+import { caret, commit, INVALID, type Ctx } from './context';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
 
-export type Mode = 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line';
+export type Mode = 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl';
 
 export interface CliResult {
   output: string[];
@@ -44,30 +46,10 @@ interface Pending {
   handle: (answer: string, out: string[]) => void;
 }
 
-interface Ctx {
-  s: CliSession;
-  net: Network;
-  dev: Device;
-  out: string[];
-  result: CliResult;
-  /** Character offset of the command within the typed line (non-zero for `do`). */
-  offset: number;
-}
-
-const INVALID = "% Invalid input detected at '^' marker.";
-
 // ---- helpers used by commands ----------------------------------------------------
-
-function caret(ctx: Ctx, column: number): void {
-  ctx.out.push(' '.repeat(ctx.s.promptText().length + ctx.offset + column) + '^', INVALID, '');
-}
 
 function currentIfs(ctx: Ctx): InterfaceConfig[] {
   return ctx.s.ifContext.map((n) => ctx.dev.running.interfaces[n]).filter(Boolean);
-}
-
-function commit(ctx: Ctx): void {
-  ctx.net.commit();
 }
 
 /** Validates an `ip address` assignment like IOS does. Returns an error line or null. */
@@ -223,7 +205,7 @@ const HI: Record<string, string> = {
   id: 'VLAN ID',
 };
 
-type Tree = CommandTree<Ctx>;
+type Tree = CommandTree<Ctx>; // (same as context.Tree)
 
 function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   t.add('show version', H, (c) => c.out.push(...showVersion(c.net, c.dev)));
@@ -250,6 +232,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
     t.add('show interfaces status', H, (c) => c.out.push(...showInterfacesStatus(c.net, c.dev)));
     t.add('show interfaces trunk', H, (c) => c.out.push(...showInterfacesTrunk(c.net, c.dev)));
   }
+  addAclShows(t, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -333,7 +316,7 @@ function runTrace(c: Ctx, addrText: string): void {
   const lines = hops.map((h) => {
     const n = String(h.ttl).padStart(3);
     if (h.address === null) return `${n}  *    *    * `;
-    if (h.unreachable) return `${n} ${formatIp(h.address)} !H  !H  !H `;
+    if (h.unreachable) return `${n} ${formatIp(h.address)} !${h.code ?? 'H'}  !${h.code ?? 'H'}  !${h.code ?? 'H'} `;
     return `${n} ${formatIp(h.address)} ${h.rttMs.map((m) => `${m} msec`).join(' ')}`;
   });
   const silent = hops.filter((h) => h.address === null).length;
@@ -561,6 +544,7 @@ function buildConfig(kind: DeviceKind): Tree {
     c.dev.running.bannerMotd = null;
   });
   addRemoteAccessConfig(t);
+  addAclGlobal(t);
   addConfigNav(t, HC);
   return t;
 }
@@ -759,6 +743,7 @@ function buildLineMode(): Tree {
   t.add('no logging synchronous', HL, (c) => void (line(c).loggingSynchronous = false));
   t.add('rotary <number:group:0-127>', HL, (c, a) => void (line(c).rotary = a.group as number));
   t.add('no rotary', HL, (c) => void (line(c).rotary = null));
+  addAclLine(t);
   addConfigNav(t, HL);
   return t;
 }
@@ -783,6 +768,7 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
   };
   t.add('shutdown', HI, each((_c, ifc) => void (ifc.shutdown = true)));
   t.add('no shutdown', HI, each((_c, ifc) => void (ifc.shutdown = false)));
+  addAclInterface(t);
   t.add('description <line:text>', HI, each((_c, ifc, a) => void (ifc.description = (a.text as string).slice(0, 240))));
   t.add('no description', HI, each((_c, ifc) => void (ifc.description = null)));
 
@@ -931,6 +917,7 @@ interface Trees {
   range: Tree;
   vlan: Tree;
   line: Tree;
+  acl: Tree;
 }
 
 /** `?` after a pipe: the output modifiers, then the regular expression. */
@@ -943,6 +930,13 @@ function pipeHelp(after: string): string[] {
     return m.length ? formatHelp(m, true) : ['% Unrecognized command'];
   }
   return formatHelp([{ label: 'LINE', help: 'Regular Expression' }], false);
+}
+
+function buildAclTree(): Tree {
+  const t: Tree = new CommandTree();
+  addAclMode(t);
+  addConfigNav(t, HC);
+  return t;
 }
 
 const treeCache = new Map<DeviceKind, Trees>();
@@ -959,6 +953,7 @@ export function treesFor(kind: DeviceKind): Trees {
       range: buildInterface(kind, 'range'),
       vlan: buildVlanMode(),
       line: buildLineMode(),
+      acl: buildAclTree(),
     };
     treeCache.set(kind, trees);
   }
@@ -978,6 +973,9 @@ export class CliSession {
   private enableAttempts = 0;
   private bannerBuffer: { delim: string; lines: string[] } | null = null;
   lineContext: 'con' | 'vty' | null = null;
+  /** The ACL being edited in `(config-std-nacl)#` / `(config-ext-nacl)#`. */
+  aclContext: string | null = null;
+  private aclType: 'standard' | 'extended' = 'standard';
   /** True for SSH/Telnet (vty) sessions. */
   readonly isRemote: boolean;
   /** `terminal monitor`: show log messages on a vty session. */
@@ -1031,6 +1029,8 @@ export class CliSession {
         return `${host}(config-vlan)#`;
       case 'line':
         return `${host}(config-line)#`;
+      case 'acl':
+        return `${host}(config-${this.aclType === 'standard' ? 'std' : 'ext'}-nacl)#`;
     }
   }
 
@@ -1290,6 +1290,12 @@ export class CliSession {
     return logs.map((l) => `${this.net.formatLogTime(l.time)}: ${l.message}`);
   }
 
+  enterAcl(name: string, type: 'standard' | 'extended'): void {
+    this.aclContext = name;
+    this.aclType = type;
+    this.mode = 'acl';
+  }
+
   enterVlan(id: number): void {
     this.vlanContext = id;
     this.mode = 'vlan';
@@ -1305,6 +1311,7 @@ export class CliSession {
     this.ifContext = [];
     this.vlanContext = null;
     this.lineContext = null;
+    this.aclContext = null;
     const by = this.isRemote ? `${this.remoteUser || 'unknown'} on vty0` : 'console';
     this.net.log(this.deviceId, `%SYS-5-CONFIG_I: Configured from console by ${by}`);
   }

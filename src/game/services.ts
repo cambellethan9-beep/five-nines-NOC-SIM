@@ -3,8 +3,26 @@
 import type { Office } from '../content/office';
 import { parseIp } from '../sim/ip';
 import type { Network } from '../sim/network';
-import { canReach } from '../sim/routing';
+import { canReach, type Flow } from '../sim/routing';
 import { resolve } from '../sim/dns';
+
+/**
+ * What users' apps actually send to each target, so ACLs see real traffic: SMB to the file server, HTTPS to
+ * LedgerWorks and the internet, DNS to the domain controller, raw printing (9100) to printers.
+ */
+export function serviceFlow(target: string): Flow {
+  if (target === '10.10.20.11') return { proto: 'tcp', port: 445 };
+  if (target === '10.10.20.12') return { proto: 'tcp', port: 443 };
+  if (target === '10.10.20.10') return { proto: 'udp', port: 53 };
+  if (target.startsWith('10.10.30.')) return { proto: 'tcp', port: 9100 };
+  if (!target.startsWith('10.')) return { proto: 'tcp', port: 443 };
+  return { proto: 'icmp' };
+}
+
+/** Can this PC use the service at `target`? `count` adds the traffic to ACL hit counters. */
+export function reachService(net: Network, pcId: string, target: string, count = false): boolean {
+  return canReach(net, pcId, parseIp(target)!, serviceFlow(target), count);
+}
 
 export interface Service {
   id: string;
@@ -56,9 +74,9 @@ export function serviceHealth(net: Network, office: Office): ServiceHealth {
       let ok: boolean;
       if (s.byName && pc.hostNet) {
         const r = resolve(net, pc.id, s.byName);
-        ok = r.ok && canReach(net, pc.id, r.ip);
+        ok = r.ok && canReach(net, pc.id, r.ip, { proto: 'tcp', port: 443 }, true);
       } else {
-        ok = canReach(net, pc.id, parseIp(s.target(net, pc.id))!);
+        ok = reachService(net, pc.id, s.target(net, pc.id), true);
       }
       if (!ok) {
         down[s.id]++;

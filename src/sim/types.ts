@@ -1,3 +1,4 @@
+import type { Acl } from './acl';
 import type { Ipv4 } from './ip';
 
 export type DeviceKind = 'router' | 'switch' | 'l3switch' | 'pc' | 'server' | 'printer';
@@ -32,6 +33,8 @@ export interface InterfaceConfig {
   duplex: 'auto' | 'half' | 'full';
   /** `ip helper-address`: DHCP relay targets (absent on older saves). */
   helpers?: Ipv4[];
+  /** `ip access-group NAME in|out`. */
+  accessGroup?: { in?: string; out?: string };
 }
 
 export interface StaticRoute {
@@ -50,6 +53,8 @@ export interface LineConfig {
   loggingSynchronous: boolean;
   /** `rotary N`: lets the line accept SSH on a custom port set with `ip ssh port P rotary N`. */
   rotary: number | null;
+  /** `access-class NAME in`: standard ACL on who may connect (vty lines). */
+  accessClass?: string | null;
 }
 
 export interface LocalUser {
@@ -80,6 +85,8 @@ export interface DeviceConfig {
   crypto: { bits: number; serial: number } | null;
   /** `ip ssh pubkey-chain`: client keys trusted for passwordless login. */
   authorizedKeys: { user: string; key: string }[];
+  /** IPv4 access lists by name or number (absent on older saves). */
+  acls?: Record<string, Acl>;
 }
 
 export interface PortHardware {
@@ -122,6 +129,8 @@ export interface Device {
   /** DHCP and DNS services (CR-DC01 runs both). */
   dhcpServer?: DhcpServer;
   dnsZone?: Record<string, Ipv4>;
+  /** ACL hit counters ("ACL:seq" -> matches). Runtime state, not config; reset by `clear access-list counters`. */
+  aclHits?: Record<string, number>;
 }
 
 export interface LinkEnd {

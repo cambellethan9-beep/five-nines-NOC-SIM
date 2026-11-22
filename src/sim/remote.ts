@@ -2,6 +2,7 @@
 // The server side follows IOS rules: RSA keys, `line vty` transport/login settings, local users,
 // trusted client keys (`ip ssh pubkey-chain`) and custom SSH ports via rotary groups.
 
+import { evaluate } from './acl';
 import { CliSession, type CliResult } from './cli/session';
 import { formatIp, type Ipv4 } from './ip';
 import type { Network } from './network';
@@ -18,10 +19,10 @@ export function sshEnabled(device: Device): boolean {
 }
 
 /** Finds the online device that owns `ip` and is reachable from the client. */
-function findTarget(net: Network, clientId: string, ip: Ipv4): Device | null {
+function findTarget(net: Network, clientId: string, ip: Ipv4, port: number): Device | null {
   for (const device of net.devices.values()) {
     if (!net.isOnline(device) || !ownsAddress(net, device, ip)) continue;
-    return canReach(net, clientId, ip) ? device : null;
+    return canReach(net, clientId, ip, { proto: 'tcp', port }) ? device : null;
   }
   return null;
 }
@@ -101,7 +102,7 @@ export class RemoteClient {
     const out = result.output;
     const { proto, port } = this.opts;
     if (proto === 'telnet') out.push(this.win ? `Connecting To ${this.ipText}...` : `Trying ${this.ipText} ... `);
-    const target = findTarget(this.net, this.clientId, this.opts.ip);
+    const target = findTarget(this.net, this.clientId, this.opts.ip, port);
     if (!target) {
       // Nothing answers: the client waits for its timeout.
       const msg = this.win
@@ -112,7 +113,7 @@ export class RemoteClient {
       result.delayed = { ms: 5000, output: [msg, ''] };
       return result;
     }
-    if (!portOpen(target, proto, port)) {
+    if (!portOpen(target, proto, port) || !this.accessClassPermits(target)) {
       out.push(
         this.win
           ? proto === 'ssh'
@@ -210,6 +211,21 @@ export class RemoteClient {
       return null;
     }
     return vty.password === password ? 1 : null;
+  }
+
+  /** `access-class NAME in` on the vty lines: a denied source gets a TCP reset (connection refused). */
+  private accessClassPermits(target: Device): boolean {
+    const name = target.running.lines.vty.accessClass;
+    const acl = name ? target.running.acls?.[name] : undefined;
+    if (!acl || !acl.entries.some((e) => e.remark === undefined)) return true;
+    const src = sourceAddressFor(this.net, this.net.device(this.clientId), this.opts.ip);
+    if (src === null) return false;
+    const r = evaluate(acl, { proto: 'tcp', src, dst: this.opts.ip, srcPort: 51034, dstPort: this.opts.port });
+    if (r.seq !== null) {
+      const hits = (target.aclHits ??= {});
+      hits[`${acl.name}:${r.seq}`] = (hits[`${acl.name}:${r.seq}`] ?? 0) + 1;
+    }
+    return r.permit;
   }
 
   private loginLog(success: boolean): void {
@@ -337,7 +353,7 @@ export class RemoteClient {
   poll(): string[] {
     if (this.state !== 'connected') return [];
     const target = this.target!;
-    if (!this.net.isOnline(target) || !canReach(this.net, this.clientId, this.opts.ip)) {
+    if (!this.net.isOnline(target) || !canReach(this.net, this.clientId, this.opts.ip, { proto: 'tcp', port: this.opts.port })) {
       const out: string[] = [''];
       this.close(out, true);
       return out;

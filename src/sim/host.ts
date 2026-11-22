@@ -386,7 +386,7 @@ export class HostShell implements ConsoleSession {
       return;
     }
     const dest = found.ip;
-    const hops = traceroute(this.net, this.deviceId, dest);
+    const hops = traceroute(this.net, this.deviceId, dest, 30, 'windows');
     result.output.push('', `Tracing route to ${found.label} over a maximum of 30 hops:`, '');
     const lines = hops.map((h) => {
       const n = String(h.ttl).padStart(3);

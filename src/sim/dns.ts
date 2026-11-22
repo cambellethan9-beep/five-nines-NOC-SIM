@@ -31,7 +31,7 @@ export function queryServer(net: Network, pcId: string, name: string): DnsAnswer
   const server = dnsServerOf(pc);
   if (server === null) return { ok: false, reason: 'no-server', server };
   const host = [...net.devices.values()].find((d) => d.dnsZone && net.isOnline(d) && ownsAddress(net, d, server));
-  if (!host || !canReach(net, pcId, server)) return { ok: false, reason: 'timeout', server };
+  if (!host || !canReach(net, pcId, server, { proto: 'udp', port: 53 })) return { ok: false, reason: 'timeout', server };
   const ip = host.dnsZone![fqdn(name)];
   return ip === undefined ? { ok: false, reason: 'nxdomain', server } : { ok: true, ip, server };
 }

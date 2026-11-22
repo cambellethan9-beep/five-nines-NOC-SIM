@@ -132,9 +132,9 @@ So players never hit a ceiling, IOS features arrive in three waves. Each feature
 error messages, the faults it can cause, and ticket templates that use it.
 
 **Wave A: CCNA core (Phase 2, next).** Without these, CCNA-level players run out of things to learn.
-- [ ] Output filters: `| include`, `| exclude`, `| section`, `| begin`
+- [x] Output filters: `| include`, `| exclude`, `| section`, `| begin`
 - [ ] `show mac address-table`, `show interfaces counters errors`, duplex mismatch symptoms (CRC, late collisions)
-- [ ] **ACLs:** standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
+- [x] **ACLs:** standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
 - [ ] **NAT/PAT:** inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
 - [ ] **DHCP:** IOS DHCP server, pools, exclusions, `ip helper-address`; PCs switch to DHCP clients (169.254.x.x when it fails)
 - [ ] **DNS:** `ip name-server`, `ip host`, PCs resolve names (ping by name, "websites won't load but 8.8.8.8 works")
@@ -176,8 +176,11 @@ error messages, the faults it can cause, and ticket templates that use it.
 
 - [ ] **Fault library framework (#21):** each fault = preconditions + injection + symptoms + ticket templates + verification
 - [ ] **CCNA core configuration, built in this order** (Wave A; each with its `show` commands, IOS errors, faults and tickets):
-  1. [ ] Output filters: `| include`, `| exclude`, `| section`, `| begin` (cheap, used constantly)
-  2. [ ] ACLs: standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
+  1. [x] Output filters: `| include`, `| exclude`, `| section`, `| begin`, `| count` (exec, `do`, over SSH; `?` after the pipe)
+  2. [x] ACLs: standard, extended, named (sub-mode, sequence numbers, remarks); wildcard masks (IOS normalizing included);
+         `ip access-group in/out`; `access-class` on vty lines; hit counters; `show ip interface`; enforced on real flows
+         (HTTPS, SMB, DNS, printing, SSH, DHCP relay, ICMP, traceroute `!A`), replies checked too (`established`).
+         Tickets: web filter (hard), printer wildcard (moderate), vty lockout (moderate)
   3. [ ] NAT/PAT: inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
   4. [ ] DHCP: IOS DHCP server, pools, exclusions. *Done early:* staff PCs are DHCP clients of CR-DC01 (reservations),
          `ip helper-address` relay, APIPA on failure, `ipconfig /release /renew /all`, renew on link-up
@@ -216,6 +219,9 @@ error messages, the faults it can cause, and ticket templates that use it.
 **Goal:** a long-term progression arc with money that matters.
 
 - [x] **Ranks (#22) up to NOC Manager** and SLA tiers by rank (#43), 90% → 99.999% (built in Phase 1, see above)
+- [ ] **Multi-site is gated by rank (owner's rule):** a NOC Manager runs one facility. The Riverside branch and any other
+      site stay locked until the rank above NOC Manager (multi-facility management). Until then, dynamic routing runs
+      inside HQ (CR-CORE1 <-> CR-RTR1)
 - [ ] **Ranks above NOC Manager** (Director → CTO and beyond): promoted on other prerequisites, such as facilities managed
 - [ ] **Physical cabling:** cables are real objects. Open a device's **port view**, take a cable from your inventory, plug
       one end in (a dangling half-connection), then plug the other end into the far device. It has to be the right kind:
