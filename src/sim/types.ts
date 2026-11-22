@@ -1,4 +1,5 @@
 import type { Acl } from './acl';
+import type { IosDhcpPool } from './iosDhcp';
 import type { NatConfig, NatEntry, NatStats } from './nat';
 import type { Ipv4 } from './ip';
 
@@ -92,6 +93,13 @@ export interface DeviceConfig {
   acls?: Record<string, Acl>;
   /** `ip nat pool` and `ip nat inside source ...` rules. */
   nat?: NatConfig;
+  /** IOS DHCP server: pools, excluded ranges, and `no service dhcp` (false). */
+  dhcpPools?: Record<string, IosDhcpPool>;
+  dhcpExcluded?: [Ipv4, Ipv4][];
+  serviceDhcp?: boolean;
+  /** `ip name-server` and `ip host`. */
+  nameServers?: Ipv4[];
+  hosts?: Record<string, Ipv4>;
 }
 
 export interface PortHardware {
@@ -139,6 +147,11 @@ export interface Device {
   /** NAT translation table and counters (runtime state, cleared by `clear ip nat translation *`). */
   natTable?: NatEntry[];
   natStats?: NatStats;
+  /** IOS DHCP bindings per pool (MAC -> address) and detected conflicts. */
+  dhcpBindings?: Record<string, Record<string, Ipv4>>;
+  dhcpConflicts?: { ip: Ipv4; at: number }[];
+  /** IOS resolver cache (`show hosts`, temp entries). */
+  hostCache?: Record<string, { ip: Ipv4; at: number }>;
 }
 
 export interface LinkEnd {
@@ -172,6 +185,8 @@ export interface DhcpLease {
   dns: Ipv4 | null;
   server: Ipv4;
   obtainedAt: number;
+  /** null = infinite; absent = 8 days (Windows server default). */
+  leaseMs?: number | null;
 }
 
 export interface HostNet {
@@ -191,12 +206,21 @@ export interface DhcpScope {
   prefix: number;
   start: Ipv4;
   end: Ipv4;
-  gateway: Ipv4;
-  dns: Ipv4;
+  /** null when the pool hands out no gateway / DNS (an IOS pool without default-router or dns-server). */
+  gateway: Ipv4 | null;
+  dns: Ipv4 | null;
   /** MAC -> fixed address. */
   reservations: Record<string, Ipv4>;
   /** MAC -> address currently handed out. */
   leases: Record<string, Ipv4>;
+  /** IOS: `ip dhcp excluded-address` ranges (inclusive). */
+  excluded?: [Ipv4, Ipv4][];
+  /** IOS: addresses found in use when offering (`show ip dhcp conflict`). */
+  conflicts?: { ip: Ipv4; at: number }[];
+  /** Lease length; null = infinite. Absent = the Windows default of 8 days. */
+  leaseMs?: number | null;
+  /** IOS pool name. */
+  pool?: string;
 }
 
 export interface DhcpServer {

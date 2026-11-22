@@ -136,8 +136,8 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [ ] `show mac address-table`, `show interfaces counters errors`, duplex mismatch symptoms (CRC, late collisions)
 - [x] **ACLs:** standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
 - [x] **NAT/PAT:** inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
-- [ ] **DHCP:** IOS DHCP server, pools, exclusions, `ip helper-address`; PCs switch to DHCP clients (169.254.x.x when it fails)
-- [ ] **DNS:** `ip name-server`, `ip host`, PCs resolve names (ping by name, "websites won't load but 8.8.8.8 works")
+- [x] **DHCP:** IOS DHCP server, pools, exclusions, `ip helper-address`; PCs switch to DHCP clients (169.254.x.x when it fails)
+- [x] **DNS:** `ip name-server`, `ip host`, PCs resolve names (ping by name, "websites won't load but 8.8.8.8 works")
 - [ ] **Syslog:** `logging host`, `logging trap`, `service timestamps`; devices only appear in the Logs tab once configured
 - [ ] **NTP:** client/server, `show ntp status`, clocks finally leave 1993
 - [ ] **SNMP:** communities, v2c vs v3; devices only appear in Monitor once configured
@@ -186,9 +186,13 @@ error messages, the faults it can cause, and ticket templates that use it.
          `show ip nat translations|statistics`, `clear ip nat translation *`. The ISP stand-in is gone: CR-RTR1 runs the
          predecessor's PAT. Network gear only listens on its management ports. Tickets: NAT ACL narrowed (moderate),
          overload dropped (hard), `ip nat inside` missing (easy)
-  4. [ ] DHCP: IOS DHCP server, pools, exclusions. *Done early:* staff PCs are DHCP clients of CR-DC01 (reservations),
+  4. [x] DHCP: IOS DHCP server (`ip dhcp pool` with network/default-router/dns-server/domain-name/lease,
+         `ip dhcp excluded-address`, `service dhcp`, bindings, conflict detection, show/clear), serving the new GUEST
+         VLAN 40 (conference room PC CR-CONF1, internet-only via the GUEST-IN ACL). Tickets: no default-router,
+         pool full from infinite leases, guest DNS pointed inside. *Done earlier:* staff PCs are DHCP clients of CR-DC01 (reservations),
          `ip helper-address` relay, APIPA on failure, `ipconfig /release /renew /all`, renew on link-up
-  5. [ ] DNS: `ip name-server`, `ip host` on IOS. *Done early:* PC resolver with cache, CR-DC01 zone, `nslookup`,
+  5. [x] DNS: `ip name-server`, `ip host`, `show hosts`, ping/traceroute by name, EXEC typos asking the configured
+         server, public DNS at 8.8.8.8 for guests. *Done earlier:* PC resolver with cache, CR-DC01 zone, `nslookup`,
          ping/tracert by name, `ipconfig /displaydns /flushdns`, LedgerWorks resolved by name
   6. [ ] Syslog, NTP and SNMP: `logging host`/`trap`, `service timestamps`, NTP client/server, SNMP v2c/v3; devices only
          appear in Logs and Monitor once configured

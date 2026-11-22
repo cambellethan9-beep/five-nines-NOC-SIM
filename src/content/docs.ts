@@ -53,7 +53,7 @@ export function predecessorDocs(office: Office): Doc[] {
         {
           ul: [
             'One building, two floors, about 20 people. Everything runs through the server room.',
-            'Four VLANs: STAFF (10), SERVERS (20), PRINTERS (30) and MGMT (99). Details are in Network overview.',
+            'Five VLANs: STAFF (10), SERVERS (20), PRINTERS (30), GUEST (40, the conference room and visitors, internet only) and MGMT (99). Details are in Network overview.',
             'Every switch and the router run NetSmart gear. The command line is Cisco IOS syntax, so any Cisco guide on Google applies.',
             'The core switch (CR-CORE1) does the routing between VLANs. The router (CR-RTR1) only talks to the ISP.',
           ],

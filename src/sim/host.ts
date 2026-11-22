@@ -283,7 +283,8 @@ export class HostShell implements ConsoleSession {
     if (all && hn?.lease) {
       const when = (t: number) => this.net.wallClock(t).toUTCString().replace(' GMT', '');
       out.push(`   Lease Obtained. . . . . . . . . . : ${when(hn.lease.obtainedAt)}`);
-      out.push(`   Lease Expires . . . . . . . . . . : ${when(hn.lease.obtainedAt + 8 * 24 * 3600_000)}`);
+      const len = hn.lease.leaseMs === undefined ? 8 * 24 * 3600_000 : hn.lease.leaseMs;
+      out.push(`   Lease Expires . . . . . . . . . . : ${len === null ? 'Never' : when(hn.lease.obtainedAt + len)}`);
     }
     const gw = device.running.defaultGateway;
     out.push(`   Default Gateway . . . . . . . . . : ${gw === null ? '' : formatIp(gw)}`);

@@ -23,6 +23,7 @@ export const VLANS = [
   { id: 10, name: 'STAFF', subnet: '10.10.10.0/24', gateway: '10.10.10.1', purpose: 'Staff workstations' },
   { id: 20, name: 'SERVERS', subnet: '10.10.20.0/24', gateway: '10.10.20.1', purpose: 'Servers' },
   { id: 30, name: 'PRINTERS', subnet: '10.10.30.0/24', gateway: '10.10.30.1', purpose: 'Printers' },
+  { id: 40, name: 'GUEST', subnet: '10.10.40.0/24', gateway: '10.10.40.1', purpose: 'Conference room and guest laptops. DHCP from CR-CORE1, internet only' },
   { id: 99, name: 'MGMT', subnet: '10.10.99.0/24', gateway: '10.10.99.1', purpose: 'Switch management and the NOC PC' },
 ];
 
@@ -234,7 +235,37 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   svi(core, 10, '10.10.10.1 255.255.255.0', 'STAFF gateway');
   svi(core, 20, '10.10.20.1 255.255.255.0', 'SERVERS gateway');
   svi(core, 30, '10.10.30.1 255.255.255.0', 'PRINTERS gateway');
+  svi(core, 40, '10.10.40.1 255.255.255.0', 'GUEST gateway');
   svi(core, 99, '10.10.99.1 255.255.255.0', 'MGMT gateway');
+  // Guests get the internet and nothing internal. DHCP for them comes from the core itself.
+  const any = { addr: 0, wildcard: 0xffffffff };
+  const guests = { addr: parseIp('10.10.40.0')!, wildcard: 255 };
+  core.running.acls = {
+    'GUEST-IN': {
+      name: 'GUEST-IN',
+      type: 'extended',
+      named: true,
+      entries: [
+        { seq: 5, remark: 'Guests: internet only' },
+        { seq: 10, action: 'permit', proto: 'udp', src: any, dst: any, dstPort: { op: 'eq', ports: [67] } },
+        { seq: 20, action: 'permit', proto: 'icmp', src: guests, dst: { addr: parseIp('10.10.40.1')!, wildcard: 0 } },
+        { seq: 30, action: 'deny', proto: 'ip', src: guests, dst: { addr: parseIp('10.0.0.0')!, wildcard: parseIp('0.255.255.255')! } },
+        { seq: 40, action: 'permit', proto: 'ip', src: guests, dst: any },
+      ],
+    },
+  };
+  core.running.interfaces['Vlan40'].accessGroup = { in: 'GUEST-IN' };
+  core.running.dhcpExcluded = [[parseIp('10.10.40.1')!, parseIp('10.10.40.9')!]];
+  core.running.dhcpPools = {
+    GUEST: {
+      network: parseIp('10.10.40.0')!,
+      prefix: 24,
+      defaultRouter: [parseIp('10.10.40.1')!],
+      dnsServer: [parseIp('8.8.8.8')!],
+      domainName: null,
+      leaseMs: 8 * 3600_000,
+    },
+  };
   core.running.staticRoutes.push(route('0.0.0.0', '0.0.0.0', '10.0.0.1'));
   trunk(core, 'GigabitEthernet0/1', 'Trunk to CR-ACC1');
   trunk(core, 'GigabitEthernet0/2', 'Trunk to CR-ACC2');
@@ -289,6 +320,12 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
     place(p.id, layout[p.switchId].x + 200, 428, layout[p.switchId].zone);
   }
 
+  // The shared PC in the 1st-floor conference room, on the guest VLAN.
+  const conf = host(net, 'conf1', 'NS-PC', 'CR-CONF1', '10.10.40.10', '10.10.40.1');
+  access(net.device('acc1'), 'FastEthernet0/21', 40, 'Conference room');
+  net.connect('conf1', nic(conf), 'acc1', 'FastEthernet0/21');
+  place('conf1', 120, 428, 'floor1');
+
   // --- Cabling in the server room ------------------------------------------------------
   net.connect('internet', nic(internet), 'isp', 'GigabitEthernet0/1');
   net.connect('isp', 'GigabitEthernet0/0', 'rtr1', 'GigabitEthernet0/1');
@@ -334,6 +371,12 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
     pc.hostNet = { dhcp: true, lease: null, apipa: false, dnsServer: null, dnsCache: {} };
     dhcpRequest(net, pc.id);
   }
+  conf.hostNet = { dhcp: true, lease: null, apipa: false, dnsServer: null, dnsCache: {} };
+  dhcpRequest(net, conf.id);
+  // Public DNS out on the internet, for anything pointed at 8.8.8.8.
+  internet.dnsZone = Object.fromEntries(
+    ['www.example.com', 'example.com', 'www.google.com', 'outlook.office365.com', 'teams.microsoft.com'].map((n) => [n, parseIp('8.8.8.8')!]),
+  );
   // The NOC PC is static, pointed at the same DNS server.
   noc.hostNet = { dhcp: false, lease: null, apipa: false, dnsServer: parseIp('10.10.20.10'), dnsCache: {} };
 

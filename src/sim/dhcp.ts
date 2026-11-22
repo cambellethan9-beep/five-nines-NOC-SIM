@@ -4,6 +4,7 @@
 
 import { inSubnet, type Ipv4 } from './ip';
 import type { Network } from './network';
+import { iosScopes } from './iosDhcp';
 import { canReach, l3Interfaces, ownsAddress, routes } from './routing';
 import type { DhcpLease, DhcpScope, Device } from './types';
 
@@ -30,6 +31,11 @@ interface Offer {
 }
 
 /** Finds a DHCP server that would answer this PC: directly on its LAN, or through a relay. */
+/** Windows scopes and IOS pools a device serves. */
+function scopesOf(device: Device): DhcpScope[] {
+  return [...(device.dhcpServer?.scopes ?? []), ...iosScopes(device)];
+}
+
 function findServer(net: Network, pc: Device): Offer | null {
   const nic = nicOf(pc);
   const domain = net.domainOf(pc.id, nic);
@@ -38,17 +44,15 @@ function findServer(net: Network, pc: Device): Offer | null {
     for (const ifc of l3Interfaces(net, device)) {
       if (!ifc.up || net.domainOf(device.id, ifc.name) !== domain || (device.id === pc.id && ifc.name === nic)) continue;
       // A DHCP server right on this LAN.
-      if (device.dhcpServer) {
-        const scope = device.dhcpServer.scopes.find((s) => inSubnet(ifc.address, s.network, s.prefix));
-        if (scope) return { scope, serverIp: ifc.address };
-      }
+      const local = scopesOf(device).find((s) => inSubnet(ifc.address, s.network, s.prefix));
+      if (local) return { scope: local, serverIp: ifc.address };
       // A relay: the router forwards the broadcast to its helper addresses, tagged with this interface's subnet.
       if (!routes(device)) continue;
       const helpers = device.running.interfaces[ifc.name]?.helpers ?? [];
       for (const helper of helpers) {
-        const server = [...net.devices.values()].find((d) => d.dhcpServer && net.isOnline(d) && ownsAddress(net, d, helper));
+        const server = [...net.devices.values()].find((d) => scopesOf(d).length && net.isOnline(d) && ownsAddress(net, d, helper));
         if (!server || !canReach(net, device.id, helper, { proto: 'udp', port: 67 })) continue;
-        const scope = server.dhcpServer!.scopes.find((s) => inSubnet(ifc.address, s.network, s.prefix));
+        const scope = scopesOf(server).find((s) => inSubnet(ifc.address, s.network, s.prefix));
         if (scope) return { scope, serverIp: helper };
       }
     }
@@ -56,11 +60,35 @@ function findServer(net: Network, pc: Device): Offer | null {
   return null;
 }
 
-function allocate(scope: DhcpScope, mac: string): Ipv4 | null {
+function excluded(scope: DhcpScope, ip: Ipv4): boolean {
+  return (scope.excluded ?? []).some(([a, b]) => ip >= a && ip <= b);
+}
+
+/** Is something already answering on this address? (IOS pings before offering.) */
+function inUse(net: Network, requester: Device, ip: Ipv4): Device | null {
+  for (const d of net.devices.values()) {
+    if (d.id === requester.id || !net.isOnline(d)) continue;
+    if (ownsAddress(net, d, ip)) return d;
+  }
+  return null;
+}
+
+function allocate(net: Network, scope: DhcpScope, pc: Device, mac: string, server: Ipv4): Ipv4 | null {
   if (scope.reservations[mac] !== undefined) return scope.reservations[mac];
-  if (scope.leases[mac] !== undefined) return scope.leases[mac];
-  const taken = new Set([...Object.values(scope.reservations), ...Object.values(scope.leases)]);
-  for (let ip = scope.start; ip <= scope.end; ip++) if (!taken.has(ip)) return ip;
+  const current = scope.leases[mac];
+  if (current !== undefined && !excluded(scope, current)) return current;
+  const taken = new Set([...Object.values(scope.reservations), ...Object.values(scope.leases), ...(scope.conflicts ?? []).map((c) => c.ip)]);
+  for (let ip = scope.start; ip <= scope.end; ip++) {
+    if (taken.has(ip) || excluded(scope, ip)) continue;
+    const owner = inUse(net, pc, ip);
+    if (owner) {
+      // The server's own address is skipped quietly; anything else answering the ping is a conflict.
+      if (scope.conflicts && !ownsAddress(net, owner, server)) scope.conflicts.push({ ip, at: net.time });
+      if (scope.conflicts) taken.add(ip);
+      continue;
+    }
+    return ip;
+  }
   return null; // scope exhausted
 }
 
@@ -93,13 +121,21 @@ export function dhcpRequest(net: Network, pcId: string): DhcpResult {
   if (!net.isUp(pc.id, nicOf(pc))) return { ok: false, reason: 'disconnected' };
   const offer = findServer(net, pc);
   const mac = pc.hardware[nicOf(pc)].mac;
-  const ip = offer ? allocate(offer.scope, mac) : null;
+  const ip = offer ? allocate(net, offer.scope, pc, mac, offer.serverIp) : null;
   if (!offer || ip === null) {
     apply(net, pc, null, true);
     return { ok: false, reason: 'no-answer' };
   }
   offer.scope.leases[mac] = ip;
-  const lease: DhcpLease = { ip, prefix: offer.scope.prefix, gateway: offer.scope.gateway, dns: offer.scope.dns, server: offer.serverIp, obtainedAt: net.time };
+  const lease: DhcpLease = {
+    ip,
+    prefix: offer.scope.prefix,
+    gateway: offer.scope.gateway,
+    dns: offer.scope.dns,
+    server: offer.serverIp,
+    obtainedAt: net.time,
+    ...(offer.scope.leaseMs !== undefined ? { leaseMs: offer.scope.leaseMs } : {}),
+  };
   apply(net, pc, lease, false);
   return { ok: true, lease };
 }

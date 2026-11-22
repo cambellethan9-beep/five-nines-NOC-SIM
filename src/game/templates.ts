@@ -12,6 +12,7 @@ import { dhcpRequest, forceApipa } from '../sim/dhcp';
 import { reachService } from './services';
 import { ACL_TEMPLATES } from './ticketsAcl';
 import { NAT_TEMPLATES } from './ticketsNat';
+import { GUEST_TICKETS } from './ticketsGuest';
 import { flushDns, resolve } from '../sim/dns';
 import {
   FS01, INTERNET, NIC, floorOf, freePeople, freePorts, person, pickPerson, portLabel, reaches, userIncident,
@@ -698,6 +699,7 @@ export const TEMPLATES: TicketTemplate[] = [
   helperMissing,
   ...ACL_TEMPLATES,
   ...NAT_TEMPLATES,
+  ...GUEST_TICKETS,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

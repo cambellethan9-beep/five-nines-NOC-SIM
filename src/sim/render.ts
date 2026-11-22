@@ -2,6 +2,7 @@
 
 import { aclConfigLines } from './acl';
 import { natConfigLines } from './nat';
+import { dhcpConfigLines } from './iosDhcp';
 import { cdpIfName, compareIfNames, shortIfName } from './ifnames';
 import { classfulPrefix, formatIp, prefixToMask } from './ip';
 import type { Network } from './network';
@@ -77,7 +78,10 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
   if (userNames.length) lines.push('!');
   if (!config.domainLookup) lines.push('no ip domain-lookup');
   if (config.domainName) lines.push(`ip domain-name ${config.domainName}`);
-  if (!config.domainLookup || config.domainName) lines.push('!');
+  for (const ns of config.nameServers?.length ? [config.nameServers] : []) lines.push(`ip name-server ${ns.map(formatIp).join(' ')}`);
+  for (const [h, a] of Object.entries(config.hosts ?? {})) lines.push(`ip host ${h} ${formatIp(a)}`);
+  if (!config.domainLookup || config.domainName || config.nameServers?.length || Object.keys(config.hosts ?? {}).length) lines.push('!');
+  lines.push(...dhcpConfigLines(device));
   if (config.ssh.version) lines.push(`ip ssh version ${config.ssh.version}`);
   if (config.ssh.rotary !== null) lines.push(`ip ssh port ${config.ssh.port} rotary ${config.ssh.rotary}`);
   if (config.authorizedKeys.length) {

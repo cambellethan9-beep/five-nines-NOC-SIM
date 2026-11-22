@@ -14,7 +14,7 @@ describe('Cedar Ridge office', () => {
     const office = buildOffice();
     expect(office.people).toHaveLength(20);
     const kinds = [...office.net.devices.values()].map((d) => d.kind);
-    expect(kinds.filter((k) => k === 'pc')).toHaveLength(21); // 20 staff + NOC-PC
+    expect(kinds.filter((k) => k === 'pc')).toHaveLength(22); // 20 staff + NOC-PC + conference room
     expect(kinds.filter((k) => k === 'printer')).toHaveLength(2);
     expect(Object.keys(office.layout).sort()).toEqual([...office.net.devices.keys()].sort());
   });
@@ -22,12 +22,21 @@ describe('Cedar Ridge office', () => {
   it('every staff PC reaches servers, printers and the internet, except the tutorial PC', () => {
     const { net, tutorial } = buildOffice();
     for (const d of net.devices.values()) {
-      if (d.kind !== 'pc' || d.id === 'noc') continue;
+      if (d.kind !== 'pc' || d.id === 'noc' || d.id === 'conf1') continue;
       const expected = d.id !== tutorial.pcId;
       expect(reach(net, d.id, '10.10.20.11'), `${d.id} -> FS01`).toBe(expected);
       expect(reach(net, d.id, '10.10.30.22'), `${d.id} -> PRN2`).toBe(expected);
       expect(reach(net, d.id, '8.8.8.8'), `${d.id} -> internet`).toBe(expected);
     }
+  });
+
+  it('the conference room PC is on the guest VLAN: DHCP from the core, internet yes, internal no', () => {
+    const { net } = buildOffice();
+    const conf = net.device('conf1');
+    expect(conf.hostNet!.lease!.server).toBe(parseIp('10.10.40.1'));
+    expect(conf.running.interfaces['FastEthernet0'].ip!.address).toBe(parseIp('10.10.40.10'));
+    expect(reach(net, 'conf1', '8.8.8.8')).toBe(true);
+    expect(reach(net, 'conf1', '10.10.20.11')).toBe(false);
   });
 
   it('the documented addresses are all reachable from the NOC PC', () => {

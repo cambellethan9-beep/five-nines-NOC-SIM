@@ -30,10 +30,12 @@ import { isSwitchKind } from '../types';
 import { addAclGlobal, addAclInterface, addAclLine, addAclMode, addAclShows } from './aclCommands';
 import { caret, commit, INVALID, type Ctx } from './context';
 import { addNatGlobal, addNatInterface, addNatShows } from './natCommands';
+import { addDhcpDnsGlobal, addDhcpDnsShows, addDhcpPoolMode } from './dhcpDnsCommands';
+import { iosNameServer, iosResolve } from '../dns';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
 
-export type Mode = 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl';
+export type Mode = 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl' | 'dhcp';
 
 export interface CliResult {
   output: string[];
@@ -235,6 +237,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   }
   addAclShows(t, privileged);
   if (kind === 'router') addNatShows(t, privileged);
+  addDhcpDnsShows(t, privileged, true);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -252,8 +255,9 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
 
 function addExecCommon(t: Tree): void {
   t.add('ping <ip:addr>', H, (c, a) => runPing(c, a.addr as string));
-  t.add('ping <word:host>', H, (c) => c.out.push('% Unrecognized host or address, or protocol not running.', ''));
+  t.add('ping <word:host>', H, (c, a) => byName(c, String(a.host), runPing));
   t.add('traceroute <ip:addr>', H, (c, a) => runTrace(c, a.addr as string));
+  t.add('traceroute <word:host>', H, (c, a) => byName(c, String(a.host), runTrace));
   t.add('terminal length <number:len:0-512>', H, () => {});
   t.add('terminal monitor', { ...H, monitor: 'Copy debug output to the current terminal line' }, (c) => {
     if (c.s.isRemote) c.s.monitor = true;
@@ -271,6 +275,19 @@ function addExecCommon(t: Tree): void {
   );
   t.add('exit', H, (c) => c.s.endSession(c.out));
   t.add('logout', H, (c) => c.s.endSession(c.out));
+}
+
+/** ping/traceroute by name: `ip host`, then the name servers ("Translating ... domain server (X) [OK]"). */
+function byName(c: Ctx, name: string, then: (c: Ctx, addr: string) => void): void {
+  const r = iosResolve(c.net, c.dev.id, name);
+  if (r.ok) {
+    if (r.server !== null) c.out.push(`Translating "${name}"...domain server (${formatIp(r.server)}) [OK]`, '');
+    then(c, formatIp(r.ip));
+    return;
+  }
+  if (r.reason === 'off') return void c.out.push('% Unrecognized host or address, or protocol not running.', '');
+  c.out.push(`Translating "${name}"...domain server (${formatIp(r.server ?? 0xffffffff)})`);
+  c.result.delayed = { ms: r.reason === 'nxdomain' ? 800 : 4000, output: ['% Unrecognized host or address, or protocol not running.', ''] };
 }
 
 /** IOS client syntax: ssh -l <user> [-p <port>] [-v 2] <ip> */
@@ -548,6 +565,7 @@ function buildConfig(kind: DeviceKind): Tree {
   addRemoteAccessConfig(t);
   addAclGlobal(t);
   if (kind === 'router') addNatGlobal(t);
+  addDhcpDnsGlobal(t);
   addConfigNav(t, HC);
   return t;
 }
@@ -922,6 +940,7 @@ interface Trees {
   vlan: Tree;
   line: Tree;
   acl: Tree;
+  dhcp: Tree;
 }
 
 /** `?` after a pipe: the output modifiers, then the regular expression. */
@@ -934,6 +953,13 @@ function pipeHelp(after: string): string[] {
     return m.length ? formatHelp(m, true) : ['% Unrecognized command'];
   }
   return formatHelp([{ label: 'LINE', help: 'Regular Expression' }], false);
+}
+
+function buildDhcpTree(): Tree {
+  const t: Tree = new CommandTree();
+  addDhcpPoolMode(t);
+  addConfigNav(t, HC);
+  return t;
 }
 
 function buildAclTree(): Tree {
@@ -958,6 +984,7 @@ export function treesFor(kind: DeviceKind): Trees {
       vlan: buildVlanMode(),
       line: buildLineMode(),
       acl: buildAclTree(),
+      dhcp: buildDhcpTree(),
     };
     treeCache.set(kind, trees);
   }
@@ -979,6 +1006,8 @@ export class CliSession {
   lineContext: 'con' | 'vty' | null = null;
   /** The ACL being edited in `(config-std-nacl)#` / `(config-ext-nacl)#`. */
   aclContext: string | null = null;
+  /** The pool being edited in `(dhcp-config)#`. */
+  dhcpContext: string | null = null;
   private aclType: 'standard' | 'extended' = 'standard';
   /** True for SSH/Telnet (vty) sessions. */
   readonly isRemote: boolean;
@@ -1033,6 +1062,8 @@ export class CliSession {
         return `${host}(config-vlan)#`;
       case 'line':
         return `${host}(config-line)#`;
+      case 'dhcp':
+        return `${host}(dhcp-config)#`;
       case 'acl':
         return `${host}(config-${this.aclType === 'standard' ? 'std' : 'ext'}-nacl)#`;
     }
@@ -1134,8 +1165,15 @@ export class CliSession {
     if (isExec && tokens.length === 1 && offset === 0) {
       // A single unknown word at the EXEC is treated as a hostname to telnet to.
       if (this.device.running.domainLookup) {
-        out.push(`Translating "${tokens[0]}"...domain server (255.255.255.255)`);
-        result.delayed = { ms: 4000, output: ['% Unknown command or computer name, or unable to find computer address'] };
+        const r = iosResolve(this.net, this.deviceId, tokens[0]);
+        if (r.ok) {
+          // It resolved, so IOS tries to telnet to it.
+          out.push(`Trying ${tokens[0]} (${formatIp(r.ip)})... `);
+          result.delayed = { ms: 3000, output: ['% Connection timed out; remote host not responding', ''] };
+          return;
+        }
+        out.push(`Translating "${tokens[0]}"...domain server (${formatIp(r.server ?? iosNameServer(this.device))})`);
+        result.delayed = { ms: r.reason === 'nxdomain' ? 800 : 4000, output: ['% Unknown command or computer name, or unable to find computer address'] };
       } else {
         out.push('% Unknown command or computer name, or unable to find computer address');
       }
@@ -1294,6 +1332,11 @@ export class CliSession {
     return logs.map((l) => `${this.net.formatLogTime(l.time)}: ${l.message}`);
   }
 
+  enterDhcpPool(name: string): void {
+    this.dhcpContext = name;
+    this.mode = 'dhcp';
+  }
+
   enterAcl(name: string, type: 'standard' | 'extended'): void {
     this.aclContext = name;
     this.aclType = type;
@@ -1316,6 +1359,7 @@ export class CliSession {
     this.vlanContext = null;
     this.lineContext = null;
     this.aclContext = null;
+    this.dhcpContext = null;
     const by = this.isRemote ? `${this.remoteUser || 'unknown'} on vty0` : 'console';
     this.net.log(this.deviceId, `%SYS-5-CONFIG_I: Configured from console by ${by}`);
   }

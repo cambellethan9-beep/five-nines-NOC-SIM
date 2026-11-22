@@ -54,3 +54,38 @@ export function resolve(net: Network, pcId: string, name: string): Resolution {
 export function flushDns(pc: Device): void {
   if (pc.hostNet) pc.hostNet.dnsCache = {};
 }
+
+// ---------------------------------------------------------------- IOS resolver
+
+export type IosLookup = { ok: true; ip: Ipv4; server: Ipv4 | null } | { ok: false; server: Ipv4 | null; reason: 'off' | 'no-server' | 'timeout' | 'nxdomain' };
+
+/** The name server IOS shows in "Translating ... domain server (X)". 255.255.255.255 = broadcast (none set). */
+export function iosNameServer(device: Device): Ipv4 {
+  return device.running.nameServers?.[0] ?? 0xffffffff;
+}
+
+/**
+ * IOS name lookup: `ip host` entries first, then (with `ip domain-lookup`) each `ip name-server` in turn,
+ * appending `ip domain-name` to single-label names. Answers are cached as temp entries (`show hosts`).
+ */
+export function iosResolve(net: Network, deviceId: string, name: string): IosLookup {
+  const dev = net.device(deviceId);
+  const key = name.toLowerCase();
+  const stat = Object.entries(dev.running.hosts ?? {}).find(([n]) => n.toLowerCase() === key);
+  if (stat) return { ok: true, ip: stat[1], server: null };
+  if (!dev.running.domainLookup) return { ok: false, server: null, reason: 'off' };
+  const servers = dev.running.nameServers ?? [];
+  if (!servers.length) return { ok: false, server: 0xffffffff, reason: 'no-server' };
+  const fq = key.includes('.') || !dev.running.domainName ? key : `${key}.${dev.running.domainName.toLowerCase()}`;
+  const cached = dev.hostCache?.[fq];
+  if (cached) return { ok: true, ip: cached.ip, server: servers[0] };
+  for (const server of servers) {
+    const host = [...net.devices.values()].find((d) => d.dnsZone && net.isOnline(d) && ownsAddress(net, d, server));
+    if (!host || !canReach(net, deviceId, server, { proto: 'udp', port: 53 })) continue;
+    const ip = host.dnsZone![fq];
+    if (ip === undefined) return { ok: false, server, reason: 'nxdomain' };
+    (dev.hostCache ??= {})[fq] = { ip, at: net.time };
+    return { ok: true, ip, server };
+  }
+  return { ok: false, server: servers[0], reason: 'timeout' };
+}
