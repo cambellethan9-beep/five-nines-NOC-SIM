@@ -107,8 +107,11 @@ This keeps the game fast and deterministic and is accurate enough for CCNA-level
       Promotion = shift score ≥ 500 / 1,000 / 2,000 / 5,000 for 5 / 10 / 20 / 20 shifts **in a row** (saves in between
       are fine; one shift under the bar resets the count to 0). Uptime targets 1 to 5 nines; ticket limits 1/2/3/4/∞.
       Ranks above Manager will use other prerequisites (facilities managed, etc.)
-- [x] **Reliability streak:** each shift in a row meeting the uptime target pays 50 × streak (counts up to 10) × the
-      nines multiplier (1 nine ×1.1 … 5 nines ×1.5). Counts toward promotion. Missing the target halves the streak
+- [x] **Reliability streak:** each shift in a row that reaches the rank's points bar pays 50 × streak (counts up to 10)
+      × the nines multiplier of the rank's uptime target (1 nine ×1.1 … 5 nines ×1.5). Counts toward promotion.
+      A shift under the bar halves the streak
+- [x] **Points are the core, uptime is informational:** some downtime is unavoidable. Downtime still drains points while
+      it lasts, but missing the uptime target adds no extra penalty; the shift bonus/penalty rides on tickets in SLA
 - [ ] **Tier 3 unlocks network changes:** from Network Engineer on you can change the topology itself (add, move and
       replace routers and switches), not only configure what's there
 - [x] **Editable inherited docs:** Edit any reference doc or playbook in place (tables included), saved with the game,
@@ -212,8 +215,19 @@ error messages, the faults it can cause, and ticket templates that use it.
 ## Phase 3: Career, world, company and budget
 **Goal:** a long-term progression arc with money that matters.
 
-- [ ] **Ranks (#22):** Tier 1 → Tier 2 → Network Engineer → NOC Manager → Director → CTO; your rank is your badge
-- [ ] **SLA tiers by rank (#43):** 90% → 99% → 99.9% → 99.99% → 99.999%
+- [x] **Ranks (#22) up to NOC Manager** and SLA tiers by rank (#43), 90% → 99.999% (built in Phase 1, see above)
+- [ ] **Ranks above NOC Manager** (Director → CTO and beyond): promoted on other prerequisites, such as facilities managed
+- [ ] **Physical cabling:** cables are real objects. Open a device's **port view**, take a cable from your inventory, plug
+      one end in (a dangling half-connection), then plug the other end into the far device. It has to be the right kind:
+  - Copper by real standards: Cat5e / Cat6 / Cat6a with their speed and 100 m distance limits (Cat6 10G only to ~55 m),
+    straight-through vs crossover where auto-MDIX isn't available, console (rollover) cables
+  - Optional fiber: multimode (OM3/OM4) vs single-mode (OS2), LC/SC connectors, distance limits per optic
+  - Transceivers: SFP (1G), SFP+ (10G), QSFP+/QSFP28 (40/100G), SR/LR types that must match the fiber and each other.
+    Wrong optic, wrong fiber, too long a run or a speed the port can't do = link down or errors, with realistic logs
+  - Cables and optics come out of inventory and the budget; tickets like "new desk needs a drop" or "uplink to the new
+    closet"
+- [ ] **Shop console (NetSmart store):** buy switches, routers, firewalls, cables, optics and spares from the budget, with
+      delivery times; purchases land in your inventory
 - [ ] **Top-down world map (#6, #44):** click through facilities; new sites unlock as the network grows
 - [ ] **Budget (#55), early game:** start with $2,000 for consumables (patch cables, optics, a spare switch)
   - Quarterly budget from the business, raised or cut based on your SLA record and audit results
@@ -237,8 +251,18 @@ error messages, the faults it can cause, and ticket templates that use it.
 ## Phase 4: Team, training and specializations
 **Goal:** the late game shifts from firefighting to building and running a NOC.
 
-- [ ] **Interns:** nearly free, but they barely know anything: very low skills, slow, high mistake rate, need supervision,
-      and leave at the end of their term. Train a good one and you can offer them a real job
+- [ ] **Your first employee is an intern, at Tier 2:** you are responsible for training and mentoring them, and this is
+      where runbooks first matter (they follow yours). Interns are nearly free but bad at this: very low skills, slow,
+      high mistake rate, need supervision, and leave at the end of their term. Train a good one and offer them a real job
+- [ ] **Hiring tab (unlocks at NOC Manager):** browse and filter resumes: name, skills, years in the industry, salary
+      ask. Interns can be hired here too, with their obvious downsides
+- [ ] **Employee management console:** roster with skills, salary, morale and workload; fire, give a raise, promote,
+      demote. A demoted (or underpaid, or overworked) employee **may** just quit
+- [ ] **Employees bring their own runbooks:** experienced hires arrive with runbooks you can view and they use, but
+      they are not added to your docs. When they leave, their runbooks leave with them
+- [ ] **Managing managers (top ranks):** past a certain size you stop managing technicians directly. You run ~10
+      managers, each running their own team, instead of 1,000 Tier 1 techs. The job becomes much less technical and
+      much more "running the people who do the technical stuff"
 - [ ] **Hire NOC techs (#45, #45a):** salary vs skill; juniors make mistakes; they act on *your* ticket priorities
 - [ ] **Skills per tech:** each tech has skill levels per category (switching, routing, ACLs, wireless, cloud...) that decide
       which tickets they can handle and how likely they are to make it worse
@@ -253,8 +277,15 @@ error messages, the faults it can cause, and ticket templates that use it.
   - Cloud Architect needs cloud basics, so those move into this phase (below)
 - [ ] **Cloud basics (for Cloud Architect):** one cloud provider, cloud networks/subnets, security groups, route tables,
       a VPN to on-prem, and a monthly bill; scale, compliance and hybrid strategy come in Phase 5
-- [ ] **Runbook editor (#46):** if-then steps that techs follow when an alert or ticket matches; assign playbooks to techs
-- [ ] **Automated runbooks / macros (#53):** one-click command sequences; misuse during change freezes costs you
+- [ ] **Runbook scripting (#46, #53):** write a runbook as ordinary text, then highlight lines and mark them
+      **"This is a command"**. An employee following it types the marked commands top to bottom on the right device,
+      reading the rest as instructions. Steps can be assembled and reordered; one-click runs for your own use; misuse
+      during change freezes costs you
+- [ ] **Runbook triggers:** match keywords (and later alert types) to runbooks, so a ticket like "printer offline" is
+      picked up and worked automatically by an employee assigned to that runbook. Bad matches and stale runbooks make
+      things worse, so they need maintaining
+- [ ] **Automation over manual work:** at senior ranks, fixing routine tickets yourself costs a few points (see Open
+      questions); the intended play is delegation and automation so you focus on the hard tickets
 - [ ] **Mentoring and promotion (#22):** promote techs; unhappy or underpaid techs can quit
 - [ ] Ticket volume scales so time management matters (#1)
 - [ ] Wave B configuration features
@@ -335,7 +366,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 - **Menial work at high rank (owner wants it; details to approve):** at senior ranks, fixing routine tickets yourself
   costs a few points, to push delegation and automation (hired techs, runbooks, scripts) so you spend your time on the
   hard tickets. Needs the Phase 4 team first so there is someone to delegate to
-- Should missing the uptime target halve the reliability streak (built that way) or reset it to 0?
+- Should a shift under the points bar halve the reliability streak (built that way) or reset it to 0?
 - Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?

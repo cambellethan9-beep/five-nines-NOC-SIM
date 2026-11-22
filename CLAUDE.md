@@ -28,8 +28,9 @@ of the CCNA core list in the order written there.
   lose 1% / 2% / 3% of lifetime points; resolving later recovers half.
 - **Ranks:** Tier 1 → Tier 2 → Network Engineer (NOC Tier 3) → NOC Supervisor → NOC Manager. Promotion = shift
   score ≥ 500/1,000/2,000/5,000 for 5/10/20/20 shifts in a row (one miss resets the count to 0). Uptime targets 1-5 nines.
-- **Reliability streak:** uptime target met shift after shift pays 50 × streak (max 10) × (1 + 0.1 × nines); counts
-  toward promotion; a miss halves the streak.
+- **Points are the core; uptime is informational.** Reliability streak: each shift in a row at or above the rank's
+  points bar pays 50 × streak (max 10) × (1 + 0.1 × nines of the uptime target); counts toward promotion; a shift under
+  the bar halves it. Shift bonus/penalty depends on tickets in SLA only (downtime still drains points live).
 - **Tickets in play at once:** 1 / 2 / 3 / 4 / unlimited by rank; 1.5-4 min breather.
 - **Healthy-network income:** +1 point every 2 game seconds while nothing is broken and no incident is open.
 - **Downtime drain:** 2 points per affected user per service per minute (scale is an open question).

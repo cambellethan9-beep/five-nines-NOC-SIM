@@ -15,7 +15,7 @@ import { deviceCpu, interfaceRates } from '../sim/traffic';
 import { isHostKind, type Device } from '../sim/types';
 import { Chat, type ChatState } from './chat';
 import { TicketQueue, type QueueState, type Ticket } from './queue';
-import { RANKS, RULES, streakAfterMiss, streakBonus } from './scoring';
+import { pointsBar, RANKS, RULES, streakAfterMiss, streakBonus } from './scoring';
 import { serviceHealth, SERVICES, type ServiceHealth } from './services';
 
 /** Walking to a different console costs this much game time. */
@@ -381,14 +381,16 @@ export class Game {
   private endShift(): void {
     this.postAccrued();
     const stats = this.shiftStats();
-    const met = stats.slaCompliance >= stats.slaTarget && stats.availability >= stats.uptimeTarget;
+    // Points are what count. Downtime already drains points while it lasts, so missing the uptime target adds no
+    // extra penalty; the shift bonus rides on tickets resolved within SLA.
+    const met = stats.slaCompliance >= stats.slaTarget;
     const q = this.queue;
     const rank = q.rank;
     const bonus = met ? RULES.shiftBonus : -RULES.shiftPenalty;
     q.addPoints(met ? 'Shift targets met' : 'Shift targets missed', bonus);
-    // Reliability streak: uptime target met shift after shift pays more each time.
+    // Reliability streak: reaching the points bar shift after shift pays more each time.
     let reliability = 0;
-    if (stats.availability >= stats.uptimeTarget) {
+    if (stats.points + bonus >= pointsBar(q.rankIndex)) {
       q.streak++;
       reliability = streakBonus(q.streak, stats.uptimeTarget);
       q.addPoints(`Reliability streak (${q.streak} in a row)`, reliability);

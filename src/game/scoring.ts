@@ -109,7 +109,7 @@ export const RULES = {
   drainPerUserMinute: 2,
   shiftBonus: 100,
   shiftPenalty: 100,
-  /** Reliability streak: each shift in a row that meets the uptime target pays this × the streak... */
+  /** Reliability streak: each shift in a row that reaches the rank's points bar pays this × the streak... */
   streakPointsPerShift: 50,
   /** ...counting at most this many shifts. */
   streakCap: 10,
@@ -125,12 +125,21 @@ export function ninesMultiplier(target: number): number {
   return 1 + 0.1 * nines(target);
 }
 
+/** The score a shift needs to count as reliable: the rank's promotion bar (the last one at the top rank). */
+export function pointsBar(rankIndex: number): number {
+  for (let i = rankIndex; i >= 0; i--) {
+    const p = RANKS[i].promotion;
+    if (p) return p.pointsPerShift;
+  }
+  return 0;
+}
+
 /** The reliability bonus for a shift that extends the streak to `streak`. */
 export function streakBonus(streak: number, uptimeTarget: number): number {
   return Math.round(RULES.streakPointsPerShift * Math.min(streak, RULES.streakCap) * ninesMultiplier(uptimeTarget));
 }
 
-/** Missing the uptime target halves the streak instead of wiping it. */
+/** Missing the points bar halves the streak instead of wiping it. */
 export function streakAfterMiss(streak: number): number {
   return Math.floor(streak / 2);
 }

@@ -30,7 +30,7 @@ export function ShiftReportDialog({ report, onNext }: { report: ShiftReport; onN
               <td className="num">{pct(report.availability, 2)}</td>
               <td className="num muted">target {pct(report.uptimeTarget, report.uptimeTarget > 0.99 ? 2 : 0)}</td>
               <td>
-                <span className={`chip ${upOk ? 'chip-up' : 'chip-down'}`}>{upOk ? 'met' : 'missed'}</span>
+                <span className={`chip ${upOk ? 'chip-up' : 'chip-admin-down'}`}>{upOk ? 'met' : 'missed'}</span>
               </td>
             </tr>
             <tr>

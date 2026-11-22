@@ -45,13 +45,14 @@ describe('reliability streak', () => {
     expect(streakAfterMiss(7)).toBe(3);
   });
 
-  it('is applied at the end of a shift and saved', () => {
+  it('follows the points bar, not uptime, and is saved', () => {
     const game = new Game('streak');
     game.queue.tickets[0].draft.fix();
-    const r = playShift(game, 0);
-    const met = r.availability >= r.uptimeTarget;
-    expect(r.streak).toBe(met ? 1 : 0);
-    expect(r.streakBonus).toBe(met ? 55 : 0);
+    const r = playShift(game, 5000);
+    expect(r.streak).toBe(1);
+    expect(r.streakBonus).toBe(55);
+    expect(playShift(game, 5000).streakBonus).toBe(110);
+    expect(playShift(game, -5000)).toMatchObject({ streak: 1, streakBonus: 0 });
     const restored = new Game(game.seed, JSON.parse(JSON.stringify(game.toSave())));
     expect(restored.queue.streak).toBe(game.queue.streak);
   });
