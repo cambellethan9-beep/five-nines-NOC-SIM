@@ -1,6 +1,7 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { LATEST_PRINT_DRIVER, LATEST_PRINTER_FIRMWARE, type CableInHand } from './physical';
 import { Placement, type PlacementState } from './placement';
 import { Achievements, type AchievementState } from './achievements';
 import { IncidentLog, type DeclaredIncident, type IncidentReview, type IncidentState } from './incidents';
@@ -67,6 +68,7 @@ export interface SaveFile {
   incidents?: IncidentState;
   achievements?: AchievementState;
   placement?: { offered: boolean; state: PlacementState | null };
+  cableInHand?: CableInHand | null;
   ambient: ReturnType<Ambient['exportState']>;
   chat: ChatState;
 }
@@ -121,6 +123,8 @@ export class Game {
   /** The optional placement shift: offered once on a new game, until taken or declined. */
   placementOffered = true;
   placement: Placement | null = null;
+  /** A patch cable you unplugged at a switch and are holding. */
+  cableInHand: CableInHand | null = null;
   /** PCs ask DHCP for an address whenever their link comes up. */
   readonly dhcp = new DhcpWatcher();
   readonly chat: Chat;
@@ -193,6 +197,76 @@ export class Game {
   }
 
   // ---- notebook ----
+
+  // ---- the physical layer (you have to be standing there) ----
+
+  /** Pulls the patch cable out of a switch port. You keep holding it. */
+  unplugPort(sw: string, port: string): string {
+    if (this.location !== sw) return 'You have to be at the switch to touch its cables.';
+    if (this.cableInHand) return 'Your hands are full: plug in the cable you are holding first.';
+    const peer = this.net.peerOf(sw, port);
+    if (!peer) return 'Nothing is plugged into that port.';
+    this.cableInHand = { device: peer.device, iface: peer.iface, fromDevice: sw, fromPort: port };
+    this.net.disconnect(sw, port);
+    this.net.commit();
+    this.tick(5000);
+    return `Unplugged the cable from ${port.replace('FastEthernet', 'Fa').replace('GigabitEthernet', 'Gi')}.`;
+  }
+
+  /** Plugs the cable you're holding into a free port. */
+  plugPort(sw: string, port: string): string {
+    if (this.location !== sw) return 'You have to be at the switch.';
+    const c = this.cableInHand;
+    if (!c) return "You aren't holding a cable.";
+    if (this.net.linkAt(sw, port)) return 'That port already has a cable in it.';
+    this.net.connect(c.device, c.iface, sw, port);
+    this.cableInHand = null;
+    this.net.commit();
+    this.tick(5000);
+    return `Plugged the cable into ${port.replace('FastEthernet', 'Fa').replace('GigabitEthernet', 'Gi')}.`;
+  }
+
+  setPortLabel(sw: string, port: string, text: string): void {
+    const d = this.net.device(sw);
+    const labels = (d.portLabels ??= {});
+    if (text.trim()) labels[port] = text.trim().slice(0, 24);
+    else delete labels[port];
+  }
+
+  /** Printer front panel: reseat the network cable at the printer. */
+  reseatPrinterCable(id: string): string {
+    if (this.location !== id) return 'You have to be at the printer.';
+    const nic = Object.keys(this.net.device(id).hardware)[0];
+    const link = this.net.linkAt(id, nic);
+    if (!link) return 'There is no network cable in the printer.';
+    if (link.cable === 'unplugged') {
+      link.cable = 'ok';
+      this.net.commit();
+      return 'Pushed the network cable back into the printer. Click. The link light comes on.';
+    }
+    if (link.cable === 'cut') return 'Reseated it. The link light stays off: the cable itself is damaged.';
+    return 'The cable was already seated. Link light is on.';
+  }
+
+  /** Printer front panel: install the latest firmware from the USB stick in your bag (the printer reboots). */
+  updatePrinterFirmware(id: string): string {
+    if (this.location !== id) return 'You have to be at the printer.';
+    const d = this.net.device(id);
+    if (d.firmware === LATEST_PRINTER_FIRMWARE) return `Firmware ${d.firmware} is already the latest.`;
+    d.firmware = LATEST_PRINTER_FIRMWARE;
+    d.bootingUntil = this.net.time + 120_000;
+    this.net.commit();
+    return `Installing firmware ${LATEST_PRINTER_FIRMWARE}. The printer restarts and is offline for about 2 minutes.`;
+  }
+
+  /** At a PC: reinstall the office printer driver. */
+  updatePrintDriver(pcId: string): string {
+    if (this.location !== pcId) return 'You have to be at the PC.';
+    const d = this.net.device(pcId);
+    d.printDriver = { version: LATEST_PRINT_DRIVER, ok: true };
+    this.tick(60_000);
+    return `Installed print driver ${LATEST_PRINT_DRIVER}. Test page printed.`;
+  }
 
   // ---- placement shift ----
 
@@ -357,6 +431,7 @@ export class Game {
       incidents: this.incidents.exportState(),
       achievements: this.achievements.exportState(),
       placement: { offered: this.placementOffered, state: this.placement?.state ?? null },
+      cableInHand: this.cableInHand,
       ambient: this.ambient.exportState(),
       chat: structuredClone(this.chat.state),
     };
@@ -386,6 +461,7 @@ export class Game {
     this.achievements.importState(save.achievements);
     this.achievements.fresh = [];
     this.placementOffered = save.placement?.offered ?? false;
+    this.cableInHand = save.cableInHand ?? null;
     this.placement = save.placement?.state ? new Placement(this.net, this.office, save.placement.state) : null;
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;

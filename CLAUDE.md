@@ -59,8 +59,8 @@ Downtime drain scale; whether the
 | `src/sim/` (more) | ACLs (`acl.ts`), NAT (`nat.ts`), IOS DHCP server (`iosDhcp.ts`), syslog/NTP/SNMP (`mgmt.ts`), L2/STP/EtherChannel/VTP (`l2.ts`), MAC table (`mactable.ts`), type 7/login block-for/exec-timeout (`hardening.ts`), flash/TFTP/archive/configure replace (`backup.ts`), snooping/DAI/IPSG/PACL/VACL (`security.ts`), NSOS images/boot/ROMMON (`images.ts`) |
 | `src/sim/cli/` | Parser (`parser.ts`), session and modes (`session.ts`), feature command files (`*Commands.ts`, `routingShows.ts`), pipe filters |
 | `src/content/` | Cedar Ridge Accounting office (`office.ts`), predecessor docs (`docs.ts`), Phase 0 demo network (tests only) |
-| `src/game/` | Game state (`game.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
-| `src/ui/` | React views: Tickets, Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, terminal, intro |
+| `src/game/` | Game state (`game.ts`), declared incidents (`incidents.ts`), achievements, placement shift, physical layer (`physical.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
+| `src/ui/` | React views: Tickets (+ search, NOC incidents), Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, front panels, terminal, intro, placement, achievements, settings (colors, hotkeys) |
 | `tests/` | Vitest; tests drive the CLI like a player. Keep all tests passing |
 
 Conventions: reachability takes a flow (protocol/port) so ACLs and NAT apply, replies included; routers only listen on their management ports. TypeScript strict; the sim models state, not packets (reachability is computed); fixes are verified by

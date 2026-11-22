@@ -337,6 +337,12 @@ export interface Device {
   macClearedAt?: number;
   /** DHCP snooping bindings (learned from DHCP through this switch), keyed by MAC. */
   snoopBindings?: Record<string, SnoopBinding>;
+  /** Labels stuck above switch ports (physical: the config doesn't change them). */
+  portLabels?: Record<string, string>;
+  /** Printer firmware version. */
+  firmware?: string;
+  /** A PC's driver for the office printers (a broken one means that PC can't print). */
+  printDriver?: { version: string; ok: boolean };
   /** Packets dropped by dynamic ARP inspection. */
   daiDrops?: number;
   /** OS images on flash: (or in a TFTP root), and the image the device is running. */

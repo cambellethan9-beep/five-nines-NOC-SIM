@@ -17,6 +17,7 @@ import { TicketsView } from './TicketsView';
 import { SettingsDialog } from './Settings';
 import { AchievementsDialog } from './Achievements';
 import { PlacementOffer, PlacementResults, PlacementView } from './Placement';
+import { FrontPanel, PrinterPanel } from './FrontPanel';
 import type { DeclareDraft } from './Incidents';
 import { applyTheme, loadTheme } from './theme';
 
@@ -86,6 +87,7 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   const toastTimer = useRef<number>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [achOpen, setAchOpen] = useState(false);
+  const [panelMode, setPanelMode] = useState<'console' | 'panel'>('console');
   const [declareDraft, setDeclareDraft] = useState<DeclareDraft | null>(null);
   const declareFrom = (draft: DeclareDraft) => {
     setDeclareDraft(draft);
@@ -210,6 +212,9 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   const unacked = game.queue.openTickets().filter((x) => x.respondedAt === null).length;
   const unreadChat = game.chat.totalUnread() - (view === 'chat' ? game.chat.unread(chatSel) : 0);
   const atDesk = game.location.startsWith('ws');
+  const atPrinter = here.kind === 'printer';
+  const atGear = here.kind === 'switch' || here.kind === 'l3switch' || here.kind === 'router';
+  const showPanel = atGear && panelMode === 'panel';
   const savedAgo = savedAt === null ? null : Math.floor((Date.now() - savedAt) / 1000);
 
   return (
@@ -289,11 +294,22 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
           <section className={`dock ${dockOpen ? 'open' : 'closed'} ${atDesk ? 'tall' : ''}`} aria-label="Console">
             <div className="dock-head">
               <button className="dock-toggle" onClick={() => setDockOpen((o) => !o)} aria-expanded={dockOpen}>
-                {dockOpen ? '▾' : '▸'} {atDesk ? 'At the desk' : 'Console'}
+                {dockOpen ? '▾' : '▸'} {atDesk ? 'At the desk' : atPrinter ? 'At the printer' : 'Console'}
               </button>
               <span className="dock-where">
                 {here.running.hostname} · {atHome ? 'your desk' : game.placeName(game.location)}
               </span>
+              {atGear && (
+                <span className="dock-modes" role="group" aria-label="What you're looking at">
+                  <button className={panelMode === 'console' ? 'on' : ''} onClick={() => setPanelMode('console')}>
+                    Console
+                  </button>
+                  <button className={panelMode === 'panel' ? 'on' : ''} onClick={() => setPanelMode('panel')}>
+                    Front panel
+                  </button>
+                </span>
+              )}
+              {game.cableInHand && <span className="dock-hand">Holding a patch cable</span>}
               {!atHome && (
                 <button className="secondary small" onClick={() => walk(game.office.home)}>
                   Walk back to your desk (+{WALK_MS / 1000}s)
@@ -302,10 +318,12 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
             </div>
             <div className="dock-body">
               {visited
-                .filter((id) => !id.startsWith('ws'))
+                .filter((id) => !id.startsWith('ws') && game.net.device(id).kind !== 'printer')
                 .map((id) => (
-                  <Terminal key={id} net={game.net} deviceId={id} session={game.session(id)} tick={tick} visible={dockOpen && id === game.location} />
+                  <Terminal key={id} net={game.net} deviceId={id} session={game.session(id)} tick={tick} visible={dockOpen && id === game.location && !showPanel} />
                 ))}
+              {showPanel && dockOpen && <FrontPanel key={game.location} game={game} deviceId={game.location} onMessage={say} />}
+              {atPrinter && dockOpen && <PrinterPanel key={game.location} game={game} deviceId={game.location} onMessage={say} />}
               {atDesk && dockOpen && <DeskView key={game.location} game={game} pcId={game.location} tick={tick} visible />}
             </div>
           </section>

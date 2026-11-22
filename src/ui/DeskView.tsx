@@ -118,6 +118,22 @@ export function DeskView({ game, pcId, tick, visible }: { game: Game; pcId: stri
                       </li>
                     )}
                     <li>
+                      <span className="dm-group">▾ Print queues</span>
+                      <ul>
+                        {['CR-PRN1 (1st floor copy room)', 'CR-PRN2 (2nd floor copy room)'].map((q) => (
+                          <li key={q} className={`dm-dev ${pc.printDriver && !pc.printDriver.ok ? 'warn' : ''}`}>
+                            {pc.printDriver && !pc.printDriver.ok ? '⚠ ' : ''}
+                            {q} · NetSmart Universal PCL6 driver {pc.printDriver?.version ?? 'not installed'}
+                          </li>
+                        ))}
+                      </ul>
+                      {pc.printDriver && !pc.printDriver.ok && (
+                        <button className="secondary small" onClick={() => setResult(game.updatePrintDriver(pcId))}>
+                          Reinstall the printer driver
+                        </button>
+                      )}
+                    </li>
+                    <li>
                       <span className="dm-group">▸ Display adapters</span>
                     </li>
                     <li>

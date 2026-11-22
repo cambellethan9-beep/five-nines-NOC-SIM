@@ -8,6 +8,7 @@
 //
 // VLAN 10 STAFF 10.10.10.0/24 | VLAN 20 SERVERS 10.10.20.0/24 | VLAN 30 PRINTERS 10.10.30.0/24 | VLAN 99 MGMT 10.10.99.0/24
 
+import { initLabels } from '../game/physical';
 import { anyImage, installImage, RELEASES } from '../sim/images';
 import { createDevice, DEFAULT_ADMIN_USER, defaultInterfaceConfig } from '../sim/devices';
 import type { HostOptions } from '../sim/host';
@@ -480,6 +481,7 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   const tutorialPort = 'FastEthernet0/7';
   net.device('acc1').running.interfaces[tutorialPort].shutdown = true;
 
+  initLabels(net, { people } as Office);
   for (const device of net.devices.values()) device.startup = structuredClone(device.running);
   net.commit({ silent: true });
 

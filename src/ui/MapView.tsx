@@ -191,7 +191,7 @@ function DevicePanel({ game, id, onConsole, onMonitor }: { game: Game; id: strin
     setEditing(false);
   }, [id, d.running.hostname]);
 
-  const person = game.office.people.find((p) => p.pc === d.running.hostname || p.pc === `CR-${d.id.toUpperCase()}`);
+  const person = game.office.people.find((p) => p.pcId === d.id);
   const h = health(game, d);
   const statusText = !d.managed
     ? 'Not managed by you'

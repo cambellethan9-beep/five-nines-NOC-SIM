@@ -253,6 +253,17 @@ error messages, the faults it can cause, and ticket templates that use it.
          Tickets: unused ports, enable/console passwords, snooping rollout, DAI rollout (expert), NSOS upgrade from
          a vendor advisory (filename, size and MD5 given), guest hours time-range, rogue DHCP server, DAI vs static
          printers, option 82 outage
+- [x] **Owner's quick wins (approved Nov 2026):** number-key hotkeys (1-6 views, 7 console, 8 prompt, / search,
+      Alt+number while typing); cosmetic color presets and pickers (per browser); ticket search and filters;
+      NOC-declared incidents (from Tickets, Logs or Monitor) with status, timeline, auto-linked user reports that
+      count as acknowledged, and a post-incident review that can close linked tickets and go to the notebook;
+      achievements (lifetime-point titles from "The Okayest Intern Ever" at 1,000 to 1,000,000, plus feats);
+      optional placement shift on a new game (5 fixed tickets easy to expert, 10 game minutes each, no hints or
+      escalation; 300+ = Tier 2, 650+ with the hard or expert solved = Network Engineer; one attempt per game);
+      physical layer: switch front panels (LEDs, physical port labels separate from `description`, unplug and
+      move patch cables when standing at the switch), printer front panel (cable, network page, firmware update
+      with reboot), print drivers on PCs. Tickets: printer cable, broken print driver, cable moved to the wrong port
+- [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
   - L3: wrong gateway, wrong IP/mask, missing static route, OSPF neighbor down (area/timers/passive), ACL blocking traffic

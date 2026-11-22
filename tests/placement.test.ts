@@ -54,3 +54,35 @@ describe('placement shift', () => {
     expect(loaded.placement!.current!.check()).toBe(false);
   });
 });
+
+describe('physical layer', () => {
+  it('unplug at the switch, carry the cable, plug into another port; labels are physical', () => {
+    const g = new Game('phys');
+    g.introPending = false;
+    const port = g.net.peerOf('ws03', 'FastEthernet0')!.iface;
+    expect(g.net.device('acc1').portLabels![port]).toMatch(/^Desk 1-/);
+    expect(g.unplugPort('acc1', port)).toContain('have to be at the switch');
+    g.walkTo('acc1');
+    expect(g.unplugPort('acc1', port)).toContain('Unplugged');
+    expect(g.net.linkAt('ws03', 'FastEthernet0')).toBeUndefined();
+    expect(g.plugPort('acc1', 'FastEthernet0/15')).toContain('Plugged');
+    expect(g.net.peerOf('ws03', 'FastEthernet0')!.iface).toBe('FastEthernet0/15');
+    g.setPortLabel('acc1', 'FastEthernet0/15', 'Desk 1-03 (temp)');
+    expect(g.net.device('acc1').portLabels!['FastEthernet0/15']).toBe('Desk 1-03 (temp)');
+    // A config change doesn't touch the label.
+    expect(g.net.device('acc1').running.interfaces['FastEthernet0/15'].description ?? null).not.toBe('Desk 1-03 (temp)');
+  });
+
+  it('printer panel: reseat the cable and update the firmware (it reboots)', () => {
+    const g = new Game('phys2');
+    g.introPending = false;
+    g.net.linkAt('prn1', 'FastEthernet0')!.cable = 'unplugged';
+    g.net.commit();
+    g.walkTo('prn1');
+    expect(g.reseatPrinterCable('prn1')).toContain('link light comes on');
+    expect(g.updatePrinterFirmware('prn1')).toContain('offline for about 2 minutes');
+    expect(g.net.isOnline(g.net.device('prn1'))).toBe(false);
+    g.tick(125_000);
+    expect(g.net.isOnline(g.net.device('prn1'))).toBe(true);
+  });
+});
