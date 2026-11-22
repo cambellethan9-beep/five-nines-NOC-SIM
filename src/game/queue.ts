@@ -16,6 +16,8 @@ import {
   type Rank,
   type ScoreLine,
 } from './scoring';
+import { BASE_POINTS } from './scoring';
+import { canEscalateTo, coworker, COWORKERS, wastesManagersTime, type CoworkerId } from './coworkers';
 import { portShutdown, rebuildDraft, TEMPLATES, type Params, type TicketDraft, type TicketTemplate } from './templates';
 
 export type TicketStatus = 'new' | 'in-progress' | 'resolved' | 'escalated' | 'reopened' | 'senior-resolved';
@@ -24,6 +26,17 @@ export interface Activity {
   t: number;
   who: 'system' | 'you' | 'user' | 'senior';
   text: string;
+  /** Display name for 'senior' entries (the coworker who wrote it). */
+  name?: string;
+}
+
+export interface Escalation {
+  to: CoworkerId;
+  at: number;
+  /** When they finish (and either fix it or hand it back). */
+  doneAt: number;
+  /** Decided when you escalate, so saves replay exactly. */
+  success: boolean;
 }
 
 export interface Ticket {
@@ -45,6 +58,10 @@ export interface Ticket {
   /** Lifetime points lost to false resolves on this ticket (can be partly recovered). */
   penaltyTaken: number;
   seniorAt: number | null;
+  /** Handed to a coworker. */
+  escalation?: Escalation | null;
+  /** Who fixed it, when it wasn't you. */
+  resolvedBy?: CoworkerId;
   score: ScoreLine[];
   activity: Activity[];
   /** Shift number the ticket was opened in. */
@@ -180,11 +197,16 @@ export class TicketQueue {
         t.activity.push({ t: now, who: 'system', text: `Resolve SLA breached. This ticket's real impact is P${t.truePriority} (${sla.name}).` });
       }
       if (t.status === 'escalated' && t.seniorAt !== null && now >= t.seniorAt) {
+        // After a false resolve at Tier 1, Owen takes it over. No points for you.
         t.draft.fix();
         t.status = 'senior-resolved';
         t.resolvedAt = now;
-        t.activity.push({ t: now, who: 'senior', text: 'Took this over and fixed it. Check the device config to see what was wrong.' });
+        t.resolvedBy = 'owen';
+        const text = `Took this over and fixed it. ${t.draft.explain}`;
+        t.activity.push({ t: now, who: 'senior', name: 'Owen Price', text });
+        this.onCoworkerMessage?.('owen', `About ${t.id}: ${t.draft.explain}`);
       }
+      if (t.status === 'escalated' && t.escalation && now >= t.escalation.doneAt) this.finishEscalation(t);
     }
   }
 
@@ -335,6 +357,81 @@ export class TicketQueue {
     return t;
   }
 
+  /** Notified when a coworker has something to tell you (wired to chat by the game). */
+  onCoworkerMessage?: (id: CoworkerId, text: string) => void;
+
+  /** Is this coworker already working one of your tickets? */
+  coworkerBusy(id: CoworkerId): boolean {
+    return this.tickets.some((t) => this.isOpen(t) && t.escalation?.to === id);
+  }
+
+  /** Why you can't escalate this ticket to this coworker right now, or null if you can. */
+  escalationBlocked(t: Ticket, id: CoworkerId): string | null {
+    const c = coworker(id);
+    if (!this.isOpen(t)) return 'This ticket is closed.';
+    if (t.escalation) return `Already with ${coworker(t.escalation.to).name.split(' ')[0]}.`;
+    if (t.seniorAt !== null) return 'Owen is already taking this over.';
+    if (!canEscalateTo(c, this.rankIndex)) return `${c.name.split(' ')[0]} doesn't outrank you.`;
+    if (this.coworkerBusy(id)) return `${c.name.split(' ')[0]} is busy with another of your tickets.`;
+    return null;
+  }
+
+  /** Coworkers you could escalate to at your rank (busy or not). */
+  escalationTargets() {
+    return COWORKERS.filter((c) => canEscalateTo(c, this.rankIndex));
+  }
+
+  escalate(id: string, to: CoworkerId): string {
+    const t = this.find(id);
+    const blocked = this.escalationBlocked(t, to);
+    if (blocked) return blocked;
+    const c = coworker(to);
+    const now = this.net.time;
+    this.respond(t);
+    t.escalation = {
+      to,
+      at: now,
+      doneAt: now + this.rng.int(c.minMs, c.maxMs),
+      success: this.rng.chance(c.success[t.difficulty]),
+    };
+    t.status = 'escalated';
+    t.activity.push({ t: now, who: 'you', text: `Escalated to ${c.name} (${c.title}).` });
+    t.activity.push({ t: now, who: 'senior', name: c.name, text: c.id === 'gloria' ? "Got it. I'll take a look." : "On it. I'll let you know." });
+    return `${t.id} escalated to ${c.name}.`;
+  }
+
+  private finishEscalation(t: Ticket): void {
+    const esc = t.escalation!;
+    const c = coworker(esc.to);
+    const now = this.net.time;
+    const first = c.name.split(' ')[0];
+    if (!esc.success) {
+      t.escalation = null;
+      t.status = 'in-progress';
+      const text = "Couldn't figure this one out, sorry. Handing it back. Maybe try Owen?";
+      t.activity.push({ t: now, who: 'senior', name: c.name, text });
+      this.onCoworkerMessage?.(c.id, `${t.id}: ${text}`);
+      return;
+    }
+    t.draft.fix();
+    t.status = 'senior-resolved';
+    t.resolvedAt = now;
+    t.resolvedBy = c.id;
+    t.activity.push({ t: now, who: 'senior', name: c.name, text: `Fixed. ${t.draft.explain}` });
+    const base = BASE_POINTS[t.difficulty];
+    const lines: ScoreLine[] = [{ label: `Escalated to ${first} (${Math.round(c.credit * 100)}% credit)`, points: Math.round(base * c.credit) }];
+    if (t.breached) lines.push({ label: 'Resolve SLA breached', points: -Math.round(base * RULES.breachPenalty) });
+    if (t.respondMissed) lines.push({ label: 'Response SLA missed', points: -Math.round(base * RULES.missedResponsePenalty) });
+    if (wastesManagersTime(c, t.difficulty, t.truePriority)) {
+      lines.push({ label: "Sent the manager a routine ticket", points: -Math.round(base * RULES.managerTimePenalty) });
+    }
+    this.award(t, lines);
+    let msg = `${t.id} is fixed. ${t.draft.explain}`;
+    if (wastesManagersTime(c, t.difficulty, t.truePriority)) msg += ' Next time, try Owen first. I need to stay free for the big ones.';
+    else if (c.id === 'owen') msg += ' Write that one down, you\'ll see it again.';
+    this.onCoworkerMessage?.(c.id, msg);
+  }
+
   private respond(t: Ticket): void {
     if (t.respondedAt === null) t.respondedAt = this.net.time;
     if (t.status === 'new') t.status = 'in-progress';
@@ -382,6 +479,11 @@ export class TicketQueue {
     if (note.trim()) t.activity.push({ t: now, who: 'you', text: note.trim() });
 
     if (t.draft.check()) {
+      if (t.escalation) {
+        const who = coworker(t.escalation.to).name.split(' ')[0];
+        t.activity.push({ t: now, who: 'system', text: `You fixed it before ${who} got to it. Escalation cancelled.` });
+        t.escalation = null;
+      }
       let lines = resolveScore(this.scoreInput(t));
       if (t.falseResolves > 0) {
         // Coming back to it later still pays, just not as much as getting it right first.
@@ -399,6 +501,7 @@ export class TicketQueue {
     }
 
     // Not actually fixed.
+    if (t.escalation) return { ok: false, message: `Not fixed yet, and ${coworker(t.escalation.to).name.split(' ')[0]} is still working on it.`, lines: [] };
     t.falseResolves++;
     const rank = this.rank;
     if (rank.falseResolvePct === 0) {
@@ -412,9 +515,9 @@ export class TicketQueue {
       t.activity.push({
         t: now,
         who: 'system',
-        text: `Reopened: the problem isn't fixed. A senior tech will take this over in ${RULES.seniorTakeoverMs / MIN} minutes. Fix it before then for partial credit.`,
+        text: `Reopened: the problem isn't fixed. Owen Price (Tier 2) will take this over in ${RULES.seniorTakeoverMs / MIN} minutes. Fix it before then for partial credit.`,
       });
-      return { ok: false, message: `Not fixed. ${t.id} was escalated to a senior. No points.`, lines: [] };
+      return { ok: false, message: `Not fixed. Owen will take ${t.id} over. No points.`, lines: [] };
     }
     const penalty = falseResolvePenalty(rank, this.lifetimePoints);
     t.penaltyTaken += penalty;

@@ -128,7 +128,13 @@ export class Game {
     this.net = this.office.net;
     this.location = this.office.home;
     this.queue = new TicketQueue(this.net, this.office, this.net.rng, () => this.shiftStart + SHIFT_MS);
-    this.chat = new Chat(this.net, this.office, this.net.rng, () => this.health.perUser);
+    this.chat = new Chat(this.net, this.office, this.net.rng, () => this.health.perUser, undefined, () => {
+      const open = this.queue.openTickets().filter((t) => !t.escalation && t.seniorAt === null);
+      if (!open.length) return null;
+      const t = [...open].sort((a, b) => a.priority - b.priority || a.openedAt - b.openedAt)[0];
+      return { id: t.id, hint: t.draft.hint };
+    });
+    this.queue.onCoworkerMessage = (id, text) => this.chat.coworkerSay(id, text);
     this.ambient = new Ambient(this.net, () => {
       const busy = this.queue.busyPcs();
       busy.add(this.office.tutorial.pcId);

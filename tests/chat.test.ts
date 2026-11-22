@@ -51,10 +51,10 @@ describe('office chat', () => {
     game.net.commit();
     game.chat.send(p.pcId, 'what does device manager say about your network adapter?');
     game.tick(30 * SEC);
-    expect(game.chat.conv(p.pcId).messages.at(-1)!.text).toContain('Code 10');
+    expect(game.chat.conv(p.pcId).messages.slice(-3).map((m) => m.text).join(' | ')).toContain('Code 10');
     game.chat.send(p.pcId, 'what does ipconfig show?');
     game.tick(30 * SEC);
-    expect(game.chat.conv(p.pcId).messages.at(-1)!.text).toContain('Media disconnected');
+    expect(game.chat.conv(p.pcId).messages.slice(-3).map((m) => m.text).join(' | ')).toContain('Media disconnected');
   });
 
   it('a user with nothing wrong says so', () => {

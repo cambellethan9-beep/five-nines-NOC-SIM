@@ -3,6 +3,8 @@ import type { Game } from '../game/game';
 import type { Ticket } from '../game/queue';
 import { SLA, total, type Priority, type ScoreLine } from '../game/scoring';
 import { formatIp } from '../sim/ip';
+import { coworker, wastesManagersTime } from '../game/coworkers';
+import { BASE_POINTS } from '../game/scoring';
 
 interface Props {
   game: Game;
@@ -18,7 +20,7 @@ const STATUS_LABEL: Record<Ticket['status'], string> = {
   resolved: 'Resolved',
   escalated: 'Escalated',
   reopened: 'Reopened',
-  'senior-resolved': 'Resolved by senior',
+  'senior-resolved': 'Resolved by a coworker',
 };
 
 /** "12:04" for durations, "-3:10" when overdue. */
@@ -201,13 +203,15 @@ function TicketDetail({ game, ticket: t, onMessage }: { game: Game; ticket: Tick
         <ol>
           {t.activity.map((a, i) => (
             <li key={i} className={`act act-${a.who}`}>
-              <span className="act-who">{a.who === 'you' ? 'You' : a.who === 'user' ? t.draft.reporter.name.split(' ')[0] : a.who === 'senior' ? 'Senior tech' : 'System'}</span>
+              <span className="act-who">{a.who === 'you' ? 'You' : a.who === 'user' ? t.draft.reporter.name.split(' ')[0] : a.who === 'senior' ? (a.name ?? 'Senior tech') : 'System'}</span>
               <span className="act-time mono">{clockAt(game, a.t)}</span>
               <p className="act-text">{a.text}</p>
             </li>
           ))}
         </ol>
       </section>
+
+      {open && <EscalatePanel game={game} ticket={t} onMessage={onMessage} />}
 
       {open && (
         <section className="td-actions">
@@ -262,5 +266,63 @@ function TicketDetail({ game, ticket: t, onMessage }: { game: Game; ticket: Tick
         </section>
       )}
     </article>
+  );
+}
+
+function EscalatePanel({ game, ticket: t, onMessage }: { game: Game; ticket: Ticket; onMessage: (text: string) => void }) {
+  const q = game.queue;
+  const targets = q.escalationTargets();
+  if (t.escalation) {
+    const c = coworker(t.escalation.to);
+    return (
+      <section className="td-escalate" aria-label="Escalation">
+        <h3>Escalated</h3>
+        <p className="td-fine">
+          {c.name} ({c.title}) is working on it. You can still fix it yourself first for full points.
+        </p>
+      </section>
+    );
+  }
+  if (t.seniorAt !== null) return null;
+  return (
+    <section className="td-escalate" aria-label="Escalate">
+      <h3>Escalate</h3>
+      {targets.length === 0 ? (
+        <p className="td-fine">Nobody above you to escalate to. This one's yours.</p>
+      ) : (
+        <div className="esc-list">
+          {targets.map((c) => {
+            const blocked = q.escalationBlocked(t, c.id);
+            const credit = Math.round(BASE_POINTS[t.difficulty] * c.credit);
+            const routine = wastesManagersTime(c, t.difficulty, t.truePriority);
+            return (
+              <div key={c.id} className="esc-row">
+                <div className="esc-who">
+                  <strong>{c.name}</strong>
+                  <span className="td-fine">
+                    {c.title} · {c.tenure}
+                  </span>
+                  <span className="td-fine">{c.blurb}</span>
+                </div>
+                <div className="esc-side">
+                  <span className="td-fine">
+                    ~{Math.round(c.minMs / 60000)}-{Math.round(c.maxMs / 60000)} min · you keep {Math.round(c.credit * 100)}% (~{credit} pts)
+                  </span>
+                  <button
+                    className="secondary small"
+                    disabled={!!blocked}
+                    title={blocked ?? (routine ? 'She will not love getting a routine ticket.' : '')}
+                    onClick={() => onMessage(q.escalate(t.id, c.id))}
+                  >
+                    {blocked && blocked.includes('busy') ? 'Busy' : `Escalate to ${c.name.split(' ')[0]}`}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      <p className="td-fine">The SLA clock keeps running while they work. They might hand it back if it's beyond them.</p>
+    </section>
   );
 }

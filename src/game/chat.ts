@@ -6,6 +6,7 @@ import type { Office, Person } from '../content/office';
 import { formatIp } from '../sim/ip';
 import type { Network } from '../sim/network';
 import type { Rng } from '../sim/rng';
+import { COWORKERS, OWEN_TIPS, type CoworkerId } from './coworkers';
 
 export type ConvId = string; // 'all' or a person's PC id
 export const ALL = 'all';
@@ -49,6 +50,11 @@ export interface ChatState {
   askedCable: Record<string, number>;
   /** Per-conversation memory, so replies follow the flow of the chat. */
   talk?: Record<string, Talk>;
+  /** Owen's random facts: when the next one comes, and which he's already told you. */
+  nextTipAt?: number;
+  tipsUsed?: number[];
+  /** Tickets Owen already nudged you on. */
+  hinted?: string[];
 }
 
 interface Talk {
@@ -91,6 +97,8 @@ export class Chat {
     /** Broken service ids per present user (from the latest service check). */
     private readonly broken: () => Record<string, string[]>,
     state?: ChatState,
+    /** The most urgent open ticket and its hint, for when you ask Owen for help. */
+    private readonly urgentTicket: () => { id: string; hint: string } | null = () => null,
   ) {
     this.state = state ?? { convs: {}, outbox: [], nextComplaint: {}, complaints: {}, calmUntil: 0, askedCable: {} };
     this.conv(ALL);
@@ -126,10 +134,28 @@ export class Chat {
     this.state.outbox.push({ at: this.net.time + delayMs, conv, from, text, effect });
   }
 
+  /** A coworker messages you directly. */
+  coworkerSay(id: CoworkerId, text: string): void {
+    this.post(`cw:${id}`, `cw:${id}`, text);
+  }
+
   /** Called every tick while the shift runs. */
   update(): void {
     const now = this.net.time;
     const s = this.state;
+
+    // Owen shares something useful every so often. Teaching is part of his job.
+    if (s.nextTipAt === undefined) s.nextTipAt = now + this.rng.int(10 * MIN, 18 * MIN);
+    if (now >= s.nextTipAt) {
+      const used = (s.tipsUsed ??= []);
+      const left = OWEN_TIPS.map((_, i) => i).filter((i) => !used.includes(i));
+      if (left.length) {
+        const i = this.rng.pick(left);
+        used.push(i);
+        this.coworkerSay('owen', OWEN_TIPS[i]);
+      }
+      s.nextTipAt = now + this.rng.int(15 * MIN, 28 * MIN);
+    }
 
     // Deliver queued messages.
     s.outbox.sort((a, b) => a.at - b.at);
@@ -190,6 +216,10 @@ export class Chat {
       this.announce();
       return;
     }
+    if (conv.startsWith('cw:')) {
+      this.coworkerReply(conv.slice(3) as CoworkerId, clean.toLowerCase());
+      return;
+    }
     const p = this.person(conv);
     if (!p) return;
     const persona = personaOf(p);
@@ -200,6 +230,41 @@ export class Chat {
     talk.asked = reply.asks ?? null;
     const delay = persona === 'ghost' ? this.rng.int(2 * MIN, 5 * MIN) : this.rng.int(6 * SEC, 25 * SEC);
     this.queue(conv, p.pcId, reply.text, delay, reply.effect);
+  }
+
+  /** Coworkers answer briefly. Owen will nudge you once per ticket; after that you're on your own. */
+  private coworkerReply(id: CoworkerId, text: string): void {
+    const conv = `cw:${id}`;
+    const delay = this.rng.int(15 * SEC, 60 * SEC);
+    const thanks = /\b(thanks|thank you|thx|ty|appreciate)\b/.test(text);
+    if (thanks) {
+      this.queue(conv, conv, { jordan: 'np', owen: 'Anytime.', gloria: 'Mm-hm.' }[id], delay);
+      return;
+    }
+    if (/^(ok|okay|k|cool|got it|will do)\W*$/.test(text)) return;
+    if (id === 'jordan') {
+      this.queue(conv, conv, this.rng.pick(["No idea, honestly. Ask Owen?", "I'm stuck on my own stuff right now, sorry.", "Have you tried looking at the switch port? That's usually where I start."]), delay);
+      return;
+    }
+    if (id === 'gloria') {
+      this.queue(conv, conv, "I'm in meetings most of the day. If it's critical, escalate the ticket to me properly.", delay);
+      return;
+    }
+    const urgent = this.urgentTicket();
+    const hinted = (this.state.hinted ??= []);
+    if (urgent && !hinted.includes(urgent.id)) {
+      hinted.push(urgent.id);
+      this.queue(conv, conv, `For ${urgent.id}: ${urgent.hint}`, delay);
+      return;
+    }
+    this.queue(conv, conv, urgent ? "You've got this. If you're really stuck, escalate it to me." : 'Quiet right now. Good time to write some notes.', delay);
+  }
+
+  /** Display name for a sender id ('you', a coworker, or a staff PC id). */
+  nameOf(from: string): string {
+    if (from === 'you') return 'You';
+    if (from.startsWith('cw:')) return COWORKERS.find((c) => `cw:${c.id}` === from)?.name ?? from;
+    return this.person(from)?.name ?? from;
   }
 
   private announce(): void {

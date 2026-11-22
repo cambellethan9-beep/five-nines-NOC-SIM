@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ALL } from '../game/chat';
+import { COWORKERS } from '../game/coworkers';
 import type { Game } from '../game/game';
 
 interface Props {
@@ -27,7 +28,8 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
 
   const lastAt = (id: string) => chat.state.convs[id]?.messages.at(-1)?.t ?? -1;
   const people = [...game.office.people].sort((a, b) => lastAt(b.pcId) - lastAt(a.pcId) || a.name.localeCompare(b.name));
-  const nameOf = (from: string) => (from === 'you' ? 'You' : (chat.person(from)?.name ?? from));
+  const nameOf = (from: string) => chat.nameOf(from);
+  const teammate = active.startsWith('cw:') ? COWORKERS.find((c) => `cw:${c.id}` === active) : undefined;
   const person = active === ALL ? null : chat.person(active);
 
   const send = () => {
@@ -43,7 +45,15 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
           <span className="ci-sub">All {game.office.people.length} staff in the building</span>
           {chat.unread(ALL) > 0 && active !== ALL && <span className="badge hot">{chat.unread(ALL)}</span>}
         </button>
-        <h2 className="side-title">Direct messages</h2>
+        <h2 className="side-title">Your team</h2>
+        {COWORKERS.map((c) => (
+          <button key={c.id} className={`chat-item ${active === `cw:${c.id}` ? 'active' : ''}`} onClick={() => onSelect(`cw:${c.id}`)}>
+            <span className="ci-name">{c.name}</span>
+            <span className="ci-sub">{c.title}</span>
+            {chat.unread(`cw:${c.id}`) > 0 && active !== `cw:${c.id}` && <span className="badge hot">{chat.unread(`cw:${c.id}`)}</span>}
+          </button>
+        ))}
+        <h2 className="side-title">Staff</h2>
         {people.map((p) => (
           <button key={p.pcId} className={`chat-item ${active === p.pcId ? 'active' : ''}`} onClick={() => onSelect(p.pcId)}>
             <span className="ci-name">{p.name}</span>
@@ -61,16 +71,24 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
           computer?" or "Is it working now?" Their answers are based on what's really happening on their PC.
         </p>
         <header className="chat-head">
-          <h2>{person ? person.name : '# everyone'}</h2>
+          <h2>{teammate ? teammate.name : person ? person.name : '# everyone'}</h2>
           <p className="dp-model">
-            {person
+            {teammate
+              ? `${teammate.title} · ${teammate.tenure}. ${teammate.blurb}`
+              : person
               ? `${person.title} · desk ${person.desk} · ${game.net.device(person.pcId).running.hostname}`
               : 'Anything you post here goes to every person in the building. A status update calms people down for a while.'}
           </p>
         </header>
         <div className="chat-messages" ref={scroller}>
           {conv.messages.length === 0 && (
-            <p className="empty">{person ? `No messages with ${person.name.split(' ')[0]} yet.` : 'Quiet for now. That will change the first time something breaks.'}</p>
+            <p className="empty">
+              {teammate
+                ? `No messages with ${teammate.name.split(' ')[0]} yet.`
+                : person
+                  ? `No messages with ${person.name.split(' ')[0]} yet.`
+                  : 'Quiet for now. That will change the first time something breaks.'}
+            </p>
           )}
           {conv.messages.map((m, i) => (
             <div key={i} className={`msg ${m.from === 'you' ? 'mine' : ''}`}>
@@ -92,7 +110,13 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
             id="chat-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder={person ? `Message ${person.name.split(' ')[0]}, e.g. "can you check the cable behind your PC?"` : 'Post a status update to everyone'}
+            placeholder={
+              teammate
+                ? `Message ${teammate.name.split(' ')[0]}, e.g. "any idea on my ticket?"`
+                : person
+                  ? `Message ${person.name.split(' ')[0]}, e.g. "can you check the cable behind your PC?"`
+                  : 'Post a status update to everyone'
+            }
             autoComplete="off"
           />
           <button className="primary" type="submit" disabled={!draft.trim()}>

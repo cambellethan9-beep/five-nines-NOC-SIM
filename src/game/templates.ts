@@ -33,6 +33,10 @@ export interface TicketDraft {
   check: () => boolean;
   /** What a senior does when they take the ticket over. */
   fix: () => void;
+  /** What was actually wrong and what fixed it (coworkers tell you this). */
+  explain: string;
+  /** A nudge in the right direction, without the answer. */
+  hint: string;
 }
 
 export interface Env {
@@ -100,6 +104,13 @@ function pickPerson(ctx: TemplateContext): Params {
   return { pcId: ctx.rng.pick(freePeople(ctx)).pcId, variant: ctx.rng.int(0, 2) };
 }
 
+/** "CR-ACC1 Fa0/7": the switch port a PC is patched into. */
+function portLabel(net: Network, pcId: string): string {
+  const peer = net.peerOf(pcId, NIC);
+  if (!peer) return 'an unpatched port';
+  return `${net.device(peer.device).running.hostname} ${peer.iface.replace('FastEthernet', 'Fa').replace('GigabitEthernet', 'Gi')}`;
+}
+
 function floorOf(net: Network, pcId: string): 'acc1' | 'acc2' {
   return net.peerOf(pcId, NIC)?.device === 'acc2' ? 'acc2' : 'acc1';
 }
@@ -158,6 +169,8 @@ export const portShutdown = userTicket('port-shutdown', 'trivial', (env, params)
     difficulty: 'trivial',
     truePriority: 3,
     subject: 'No internet or S: drive at my desk',
+    explain: `${portLabel(net, p.pcId)} was administratively shut down. \`no shutdown\` on that port brought the user back.`,
+    hint: 'Start at their switch port. `show interfaces status` on the access switch shows every port at a glance.',
     description: variant(
       [
         `My computer says no internet and I can't open the S: drive. Can someone look? Thanks!`,
@@ -191,6 +204,8 @@ const wrongVlan: TicketTemplate = {
       difficulty: 'easy',
       truePriority: 3,
       subject: 'PC lost network after lunch',
+      explain: `${portLabel(net, p.pcId)} had been moved to VLAN ${params.badVlan}. Staff ports belong in VLAN 10.`,
+      hint: 'The link light is on, so the cable is fine. What VLAN is their port in?',
       description: variant(
         [
           `It was working this morning. Now I get "no internet" and can't open any client files.`,
@@ -236,6 +251,8 @@ const movedDesk: TicketTemplate = {
       difficulty: 'moderate',
       truePriority: 3,
       subject: `Moved to desk ${params.desk}, no network`,
+      explain: `The port at desk ${params.desk} (${String(params.to) === 'acc1' ? 'CR-ACC1' : 'CR-ACC2'} ${String(params.port).replace('FastEthernet', 'Fa')}) had never been configured, so it was still in VLAN 1. Put it in VLAN 10 as an access port.`,
+      hint: 'New desk, new switch port. What VLAN is an unused port in by default?',
       description: `Hi! I moved to the empty desk ${params.desk} this morning to sit with my team. Plugged everything back in the same way but my PC can't connect to anything now.`,
       reporter: p,
       pcs: [p.pcId],
@@ -267,6 +284,8 @@ const cableUnplugged = userTicket('cable-unplugged', 'trivial', (env, params) =>
     difficulty: 'trivial',
     truePriority: 3,
     subject: 'Computer says network cable unplugged',
+    explain: 'The patch cable had come out of the PC\'s network card. Plugged it back in.',
+    hint: '"Network cable unplugged" usually means exactly that. Ask them to check, or walk over.',
     description: variant(
       [
         `My computer says "Network cable unplugged". The cleaning crew was here last night, not sure if that matters.`,
@@ -294,6 +313,8 @@ const badCable = userTicket('bad-cable', 'easy', (env, params) => {
     difficulty: 'easy',
     truePriority: 3,
     subject: 'Network dead at my desk',
+    explain: 'The patch cable under the desk was crushed by the chair. Swapped in a new one.',
+    hint: 'Plugged in at both ends but no link light? Suspect the cable itself.',
     description: variant(
       [
         `My network kept dropping all week and now it's just dead. My chair keeps rolling over the cable, if that's a thing.`,
@@ -320,6 +341,8 @@ const nicDisabled = userTicket('nic-disabled', 'trivial', (env, params) => {
     difficulty: 'trivial',
     truePriority: 3,
     subject: 'Internet gone after I changed a setting',
+    explain: 'The network adapter had been disabled in Windows. Enabled it in Device Manager.',
+    hint: 'The switch port looks fine and the network icon is gone entirely. Look at the PC, not the network.',
     description: variant(
       [
         `I was trying to make my wifi faster (found a guide online) and now there's no internet at all. Oops?`,
@@ -346,6 +369,8 @@ const driverOutdated = userTicket('driver-outdated', 'easy', (env, params) => {
     difficulty: 'easy',
     truePriority: 3,
     subject: 'Network broke after Windows update',
+    explain: 'Windows Update rolled the network driver back to 3.9.0, which can\'t start this card (Code 10). Installed 4.2.1 from the toolkit USB.',
+    hint: 'After an update, check Device Manager. Remember a PC with no network can\'t download its own driver.',
     description: variant(
       [
         `Windows did a big update overnight and now my network doesn't work. Everyone else is fine.`,
@@ -375,6 +400,8 @@ const newPcNoDriver = userTicket('driver-missing', 'easy', (env, params) => {
     difficulty: 'easy',
     truePriority: 3,
     subject: 'Replacement PC has no network',
+    explain: 'The replacement PC had no network driver installed, so Windows didn\'t even see the adapter. Installed it from the toolkit USB.',
+    hint: 'No network icon at all on a new PC: does Windows even know it has a network card?',
     description: `The desktop team dropped off my replacement PC this morning. They said it's "all set up" but there's no network at all, not even the icon.`,
     inject: () => {
       pc().nic!.driver = 'missing';
@@ -409,6 +436,8 @@ const printerPort: TicketTemplate = {
       difficulty: 'easy',
       truePriority: 3,
       subject: `Can't print on the ${floor === 'acc1' ? '1st' : '2nd'} floor`,
+      explain: `The printer's port, ${floor === 'acc1' ? 'CR-ACC1' : 'CR-ACC2'} Fa0/20, was ${params.shut ? 'shut down' : 'moved to VLAN 10'}. Printers live in VLAN 30.`,
+      hint: 'One printer down for a whole floor: look at that printer\'s switch port.',
       description: `The copy room printer shows as offline for everyone on our floor. I have client packets to print before 3!`,
       reporter: p,
       pcs: [p.pcId],
@@ -443,6 +472,8 @@ const printerVlanDown: TicketTemplate = {
       difficulty: 'easy',
       truePriority: 2,
       subject: 'No printers work anywhere',
+      explain: 'The VLAN 30 interface on CR-CORE1 was shut down, so nothing could route to the printers. `no shutdown` on interface Vlan30 fixed it.',
+      hint: 'Both printers down at once means something they share. What routes traffic to VLAN 30?',
       description: `Neither printer works, upstairs or downstairs. Both say offline on every PC we've tried.`,
       reporter: p,
       pcs: [p.pcId],
@@ -477,6 +508,8 @@ const trunkPruned: TicketTemplate = {
       difficulty: 'moderate',
       truePriority: 2,
       subject: `Whole ${floorName} floor is offline`,
+      explain: `Someone trimmed the allowed VLANs on the ${floor === 'acc1' ? 'CR-ACC1' : 'CR-ACC2'} uplink (Gi0/1) and left out VLAN 10. The printer kept working because VLAN 30 was still allowed.`,
+      hint: 'Whole floor down but the printer works: compare what the uplink trunk carries. `show interfaces trunk`.',
       description: `Nobody on the ${floorName} floor can get to anything. Internet, S: drive, LedgerWorks, all of it. The printer still shows online, weirdly.`,
       reporter: p,
       pcs: [p.pcId],
@@ -513,6 +546,8 @@ const defaultRouteGone: TicketTemplate = {
       difficulty: 'moderate',
       truePriority: 1,
       subject: 'Internet is down for the whole office',
+      explain: 'CR-RTR1\'s default route to the ISP had been deleted. Added `ip route 0.0.0.0 0.0.0.0 203.0.113.1` back.',
+      hint: 'Internal things work, the internet doesn\'t. Follow the path out: `show ip route` on the router.',
       description: `No one can get to any websites, and client emails are bouncing. The S: drive still works. This is a big problem, we have filings due today.`,
       reporter: p,
       pcs: [p.pcId],
@@ -545,6 +580,8 @@ const fileServerSpeed: TicketTemplate = {
       difficulty: 'moderate',
       truePriority: 1,
       subject: 'S: drive is gone for everyone',
+      explain: 'CR-CORE1 Fa0/2 was hard-set to 10 Mb while the file server was hard-set to 100. Two different hard-coded speeds never link up. Set the switch port back to auto.',
+      hint: 'Server unreachable for everyone: start at the server\'s switch port. Compare both ends.',
       description: `The S: drive disappeared for all of us. Client files won't open. The server team says they only changed a NIC setting on CR-FS01 last night.`,
       reporter: p,
       pcs: [p.pcId],
@@ -591,6 +628,8 @@ const partnerVlan: TicketTemplate = {
       difficulty: 'expert',
       truePriority: 4,
       subject: 'Change request: separate network for the partners',
+      explain: 'Created VLAN 50 (PARTNERS) on CR-CORE1 and CR-ACC2, gave CR-CORE1 a VLAN 50 interface at 10.10.50.1, and moved the partners\' two ports into VLAN 50.',
+      hint: 'The VLAN has to exist on every switch in the path, it needs a gateway, and the ports have to move. Router-on-a-stick works too if the router has a trunk.',
       description: [
         `Our insurer wants the partners' PCs on their own network segment. Please set up:`,
         `- VLAN 50 named PARTNERS, subnet 10.10.50.0/24, gateway 10.10.50.1 on CR-CORE1`,

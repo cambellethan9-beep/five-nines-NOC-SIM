@@ -86,6 +86,8 @@ export const RULES = {
   revisitRecovery: 0.5,
   /** Tier 1: how long until a senior takes over a falsely resolved ticket. */
   seniorTakeoverMs: 10 * MIN,
+  /** Escalating a routine (P3/P4, trivial/easy) ticket to the NOC Manager. */
+  managerTimePenalty: 0.2,
   /** Earned while nothing is broken and no incident is open: 1 point every 2 seconds. */
   healthyPointsPerSecond: 0.5,
   /** Uptime drain per affected user, per service, per minute. */
