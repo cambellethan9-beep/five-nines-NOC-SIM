@@ -1,6 +1,9 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { Placement, type PlacementState } from './placement';
+import { Achievements, type AchievementState } from './achievements';
+import { IncidentLog, type DeclaredIncident, type IncidentReview, type IncidentState } from './incidents';
 import { updateArchives } from '../sim/backup';
 import { updateQuietMode } from '../sim/hardening';
 import { textToBlocks } from '../content/doctext';
@@ -18,7 +21,7 @@ import { deviceCpu, interfaceRates } from '../sim/traffic';
 import { isHostKind, type Device } from '../sim/types';
 import { Chat, type ChatState } from './chat';
 import { TicketQueue, type QueueState, type Ticket } from './queue';
-import { pointsBar, RANKS, RULES, streakAfterMiss, streakBonus } from './scoring';
+import { pointsBar, RANKS, RULES, streakAfterMiss, streakBonus, type Priority } from './scoring';
 import { reachService, serviceHealth, SERVICES, type ServiceHealth } from './services';
 
 /** Walking to a different console costs this much game time. */
@@ -61,6 +64,9 @@ export interface SaveFile {
     lastDrainPost: number;
   };
   queue: QueueState;
+  incidents?: IncidentState;
+  achievements?: AchievementState;
+  placement?: { offered: boolean; state: PlacementState | null };
   ambient: ReturnType<Ambient['exportState']>;
   chat: ChatState;
 }
@@ -109,6 +115,12 @@ export class Game {
   /** Sim time when the current shift began (the office runs a while before you arrive). */
   shiftStart = Infinity;
   readonly queue: TicketQueue;
+  /** Incidents the NOC declared itself. */
+  readonly incidents = new IncidentLog();
+  readonly achievements = new Achievements();
+  /** The optional placement shift: offered once on a new game, until taken or declined. */
+  placementOffered = true;
+  placement: Placement | null = null;
   /** PCs ask DHCP for an address whenever their link comes up. */
   readonly dhcp = new DhcpWatcher();
   readonly chat: Chat;
@@ -147,9 +159,21 @@ export class Game {
       return { id: t.id, hint: t.draft.hint };
     });
     this.queue.onCoworkerMessage = (id, text) => this.chat.coworkerSay(id, text);
+    this.queue.onOpened = (t, faultAt) => {
+      if (t.draft.kind !== 'incident') return;
+      const parent = this.incidents.autoParent(faultAt);
+      if (!parent) return;
+      const now = this.net.time;
+      this.incidents.link(parent.id, t.id, now, this.queue.isOpen(t) ? `${t.draft.reporter.name} reported it` : 'fixed before anyone reported it');
+      if (this.queue.isOpen(t)) {
+        t.activity.push({ t: now, who: 'system', text: `Linked by the service desk to ${parent.id} (${parent.title}), which the NOC already declared.` });
+        this.queue.acknowledge(t.id);
+      }
+    };
     this.ambient = new Ambient(this.net, () => {
       const busy = this.queue.busyPcs();
       busy.add(this.office.tutorial.pcId);
+      for (const pc of this.placement?.current?.pcs ?? []) busy.add(pc);
       return busy;
     });
     this.docs = predecessorDocs(this.office);
@@ -169,6 +193,104 @@ export class Game {
   }
 
   // ---- notebook ----
+
+  // ---- placement shift ----
+
+  /** Starts the placement test: the tutorial is set aside and the shift clock waits until it's over. */
+  startPlacement(): void {
+    if (!this.placementOffered || this.placement) return;
+    this.placementOffered = false;
+    const tut = this.queue.tickets.find((t) => t.draft.templateId === 'port-shutdown' && this.queue.isOpen(t));
+    if (tut) {
+      tut.draft.fix();
+      tut.status = 'senior-resolved';
+      tut.resolvedBy = 'owen';
+      tut.resolvedAt = this.net.time;
+      tut.activity.push({ t: this.net.time, who: 'senior', name: 'Owen Price', text: "Took care of this one so you can do the placement shift." });
+    }
+    this.debriefShown = true;
+    this.shiftStart = Infinity;
+    this.placement = new Placement(this.net, this.office);
+    this.placement.startStep();
+  }
+
+  declinePlacement(): void {
+    this.placementOffered = false;
+  }
+
+  /** After the placement results: take the rank it gave you and start the first real shift. */
+  finishPlacement(): void {
+    const p = this.placement;
+    if (!p?.state.done || this.started) return;
+    const rank = p.state.placedRank ?? 0;
+    this.queue.rankIndex = Math.max(this.queue.rankIndex, rank);
+    this.queue.streak = 0;
+    this.queue.qualifyingShifts = 0;
+    this.achievements.state.placedRank = rank;
+    this.beginShift();
+  }
+
+  get inPlacement(): boolean {
+    return !!this.placement && !this.started;
+  }
+
+  // ---- declared incidents ----
+
+  declareIncident(title: string, severity: Priority, source?: string): DeclaredIncident {
+    return this.incidents.declare(title, severity, this.net.time, source);
+  }
+
+  /** Links a ticket to an incident by hand (acknowledging it, since the NOC is on it). */
+  linkTicket(incidentId: string, ticketId: string): void {
+    const t = this.queue.find(ticketId);
+    this.incidents.link(incidentId, ticketId, this.net.time, 'linked by you');
+    if (this.queue.isOpen(t)) {
+      t.activity.push({ t: this.net.time, who: 'you', text: `Linked to ${incidentId}.` });
+      this.queue.acknowledge(t.id);
+    }
+  }
+
+  /**
+   * Resolves an incident with its post-incident review. Optionally resolves every open linked ticket too (each is
+   * checked against the real network like any resolve) and writes the review into the notebook.
+   */
+  resolveIncident(id: string, review: IncidentReview, opts: { closeLinked: boolean; toNotebook: boolean }): { ticket: string; ok: boolean; message: string }[] {
+    const inc = this.incidents.find(id);
+    if (!inc) return [];
+    const results: { ticket: string; ok: boolean; message: string }[] = [];
+    if (opts.closeLinked) {
+      for (const tid of inc.linked) {
+        const t = this.queue.find(tid);
+        if (!this.queue.isOpen(t) || t.status === 'escalated') continue;
+        const r = this.queue.resolve(tid, `Resolved with ${id}: ${review.fix}`);
+        results.push({ ticket: tid, ok: r.ok, message: r.message });
+      }
+    }
+    this.incidents.resolve(id, this.net.time, review);
+    if (opts.toNotebook) {
+      const note = this.addNote();
+      const lines = [
+        `# Summary`,
+        `- ${inc.title} (P${inc.severity})`,
+        `- Declared ${this.net.formatLogTime(inc.declaredAt).slice(1, -4)}, resolved ${this.net.formatLogTime(this.net.time).slice(1, -4)}`,
+        inc.linked.length ? `- Linked tickets: ${inc.linked.join(', ')}` : '- No user tickets linked',
+        '',
+        '# Root cause',
+        review.cause || '-',
+        '',
+        '# Fix',
+        review.fix || '-',
+        '',
+        '# Prevention',
+        review.prevention || '-',
+        '',
+        '# Timeline',
+        ...inc.timeline.map((e) => `- ${this.net.formatLogTime(e.t).slice(-12, -4)} ${e.text}`),
+      ];
+      this.updateNote(note.id, `${inc.id} review: ${inc.title}`, lines.join('\n'));
+    }
+    return results;
+  }
 
   addNote(): Note {
     const note: Note = { id: `n${Date.now().toString(36)}${this.notes.length}`, title: 'Untitled note', body: '', updated: this.net.time };
@@ -232,6 +354,9 @@ export class Game {
         lastDrainPost: this.lastDrainPost,
       },
       queue: this.queue.exportState(),
+      incidents: this.incidents.exportState(),
+      achievements: this.achievements.exportState(),
+      placement: { offered: this.placementOffered, state: this.placement?.state ?? null },
       ambient: this.ambient.exportState(),
       chat: structuredClone(this.chat.state),
     };
@@ -246,7 +371,8 @@ export class Game {
     this.location = save.location;
     this.introPending = save.introPending ?? false;
     this.debriefShown = save.debriefShown ?? true;
-    this.shiftStart = save.shift.start;
+    // JSON turns Infinity (shift not started, during the placement test) into null.
+    this.shiftStart = save.shift.start ?? Infinity;
     this.report = save.shift.report;
     this.upPairs = save.shift.upPairs;
     this.totalPairs = save.shift.totalPairs;
@@ -256,6 +382,11 @@ export class Game {
     this.healthyShift = save.shift.healthyShift ?? 0;
     this.lastDrainPost = save.shift.lastDrainPost;
     this.queue.importState(save.queue);
+    this.incidents.importState(save.incidents);
+    this.achievements.importState(save.achievements);
+    this.achievements.fresh = [];
+    this.placementOffered = save.placement?.offered ?? false;
+    this.placement = save.placement?.state ? new Placement(this.net, this.office, save.placement.state) : null;
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
     this.dhcp.baseline(this.net);
@@ -306,6 +437,7 @@ export class Game {
       this.net.recoverErrDisabled();
       updateQuietMode(this.net);
       updateArchives(this.net);
+      if (this.placement && !this.placement.state.done) this.placement.update();
       if (this.started) {
         this.queue.update();
         this.checkServices(step);
@@ -314,9 +446,11 @@ export class Game {
       this.sample();
       if (this.started && this.shiftRemaining === 0) {
         this.endShift();
+        this.achievements.evaluate(this);
         return;
       }
     }
+    this.achievements.evaluate(this);
   }
 
   private checkServices(stepMs = 0): void {

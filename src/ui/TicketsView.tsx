@@ -5,6 +5,8 @@ import { SLA, total, type Priority, type ScoreLine } from '../game/scoring';
 import { formatIp } from '../sim/ip';
 import { coworker, creditFor, DELEGATE_FROM_RANK, isDelegation, wastesManagersTime } from '../game/coworkers';
 import { BASE_POINTS } from '../game/scoring';
+import { STATUS_TEXT } from '../game/incidents';
+import { DeclareDialog, IncidentDetail, type DeclareDraft } from './Incidents';
 
 interface Props {
   game: Game;
@@ -12,6 +14,24 @@ interface Props {
   selected: string | null;
   onSelect: (id: string) => void;
   onMessage: (text: string) => void;
+  /** Open the "declare incident" form (from a log line or the Monitor, with a source). */
+  declareDraft: DeclareDraft | null;
+  onDeclare: (draft: DeclareDraft | null) => void;
+}
+
+type StatusFilter = 'open' | 'all' | 'closed';
+type KindFilter = 'all' | 'incident' | 'request' | 'noc';
+
+/** Does a ticket match the search text? Looks at the ID, subject, reporter, description, device and activity. */
+function matches(game: Game, t: Ticket, q: string): boolean {
+  if (!q) return true;
+  const hay = [t.id, t.draft.subject, t.draft.reporter.name, t.draft.reporter.pcId, t.draft.description, game.incidents.parentOf(t.id)?.id ?? '', ...t.activity.map((a) => a.text)]
+    .join('\n')
+    .toLowerCase();
+  return q
+    .toLowerCase()
+    .split(/\s+/)
+    .every((w) => hay.includes(w));
 }
 
 const STATUS_LABEL: Record<Ticket['status'], string> = {
@@ -42,10 +62,31 @@ function sortTickets(game: Game, list: Ticket[]): Ticket[] {
   return [...open, ...closed];
 }
 
-export function TicketsView({ game, tick, selected, onSelect, onMessage }: Props) {
+export function TicketsView({ game, tick, selected, onSelect, onMessage, declareDraft, onDeclare }: Props) {
   void tick;
-  const tickets = sortTickets(game, game.tickets());
-  const current = tickets.find((t) => t.id === selected) ?? tickets[0] ?? null;
+  const [query, setQuery] = useState('');
+  const [statusF, setStatusF] = useState<StatusFilter>('all');
+  const [prioF, setPrioF] = useState<0 | Priority>(0);
+  const [kindF, setKindF] = useState<KindFilter>('all');
+  const all = sortTickets(game, game.tickets());
+  const filtering = query.trim() !== '' || statusF !== 'all' || prioF !== 0 || kindF !== 'all';
+  const tickets = kindF === 'noc' ? [] : all.filter((t) => {
+    const open = game.queue.isOpen(t);
+    if (statusF === 'open' && !open) return false;
+    if (statusF === 'closed' && open) return false;
+    if (prioF && t.priority !== prioF) return false;
+    if (kindF !== 'all' && t.draft.kind !== kindF) return false;
+    return matches(game, t, query.trim());
+  });
+  const incidents = kindF === 'all' || kindF === 'noc' ? game.incidents.list.filter((i) => {
+    if (statusF === 'open' && i.status === 'resolved') return false;
+    if (statusF === 'closed' && i.status !== 'resolved') return false;
+    if (prioF && i.severity !== prioF) return false;
+    const q = query.trim().toLowerCase();
+    return !q || q.split(/\s+/).every((w) => [i.id, i.title, i.source ?? '', ...i.timeline.map((e) => e.text), ...i.linked].join('\n').toLowerCase().includes(w));
+  }) : [];
+  const currentIncident = selected?.startsWith('MI-') ? game.incidents.find(selected) : undefined;
+  const current = currentIncident ? null : (tickets.find((t) => t.id === selected) ?? all.find((t) => t.id === selected) ?? tickets[0] ?? null);
   const stats = game.shiftStats();
 
   return (
@@ -79,7 +120,72 @@ export function TicketsView({ game, tick, selected, onSelect, onMessage }: Props
 
       <div className="tickets-body">
         <nav className="queue" aria-label="Ticket queue">
-          <h2 className="side-title">Queue · {game.queue.openTickets().length} open</h2>
+          <div className="queue-head">
+            <h2 className="side-title">Queue · {game.queue.openTickets().length} open</h2>
+            <button className="secondary small" onClick={() => onDeclare({})} title="Declare an incident the NOC spotted itself">
+              Declare incident
+            </button>
+          </div>
+          <div className="ticket-search">
+            <input id="ticket-search" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search tickets (press /)" aria-label="Search tickets" />
+            <div className="ticket-filters">
+              <select value={statusF} onChange={(e) => setStatusF(e.target.value as StatusFilter)} aria-label="Status filter">
+                <option value="all">All</option>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
+              <select value={prioF} onChange={(e) => setPrioF(Number(e.target.value) as 0 | Priority)} aria-label="Priority filter">
+                <option value={0}>Any priority</option>
+                {[1, 2, 3, 4].map((p) => (
+                  <option key={p} value={p}>
+                    P{p}
+                  </option>
+                ))}
+              </select>
+              <select value={kindF} onChange={(e) => setKindF(e.target.value as KindFilter)} aria-label="Type filter">
+                <option value="all">Everything</option>
+                <option value="incident">Incidents</option>
+                <option value="request">Changes</option>
+                <option value="noc">NOC incidents</option>
+              </select>
+            </div>
+            {filtering && (
+              <p className="search-count">
+                {tickets.length + incidents.length} match{tickets.length + incidents.length === 1 ? '' : 'es'}{' '}
+                <button
+                  className="link-btn"
+                  onClick={() => {
+                    setQuery('');
+                    setStatusF('all');
+                    setPrioF(0);
+                    setKindF('all');
+                  }}
+                >
+                  clear
+                </button>
+              </p>
+            )}
+          </div>
+          {incidents.length > 0 && (
+            <ul className="noc-incidents" aria-label="NOC incidents">
+              {incidents.map((i) => (
+                <li key={i.id}>
+                  <button className={`q-item noc ${currentIncident?.id === i.id ? 'active' : ''} ${i.status === 'resolved' ? 'closed' : ''}`} onClick={() => onSelect(i.id)}>
+                    <span className={`prio prio-${i.severity}`}>P{i.severity}</span>
+                    <span className="q-main">
+                      <span className="q-subject">{i.title}</span>
+                      <span className="q-meta">
+                        {i.id} · NOC · {i.linked.length} linked
+                      </span>
+                    </span>
+                    <span className="q-side">
+                      <span className={`st st-${i.status === 'resolved' ? 'resolved' : 'in-progress'}`}>{STATUS_TEXT[i.status]}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
           <ul>
             {tickets.map((t) => {
               const open = game.queue.isOpen(t);
@@ -108,8 +214,27 @@ export function TicketsView({ game, tick, selected, onSelect, onMessage }: Props
             })}
           </ul>
         </nav>
-        {current ? <TicketDetail key={current.id} game={game} ticket={current} onMessage={onMessage} /> : <p className="empty">No tickets yet.</p>}
+        {currentIncident ? (
+          <IncidentDetail key={currentIncident.id} game={game} inc={currentIncident} onSelect={onSelect} onMessage={onMessage} />
+        ) : current ? (
+          <TicketDetail key={current.id} game={game} ticket={current} onMessage={onMessage} onSelect={onSelect} />
+        ) : (
+          <p className="empty">{filtering ? 'Nothing matches.' : 'No tickets yet.'}</p>
+        )}
       </div>
+      {declareDraft && (
+        <DeclareDialog
+          game={game}
+          draft={declareDraft}
+          onDone={(id) => {
+            onDeclare(null);
+            if (id) {
+              onSelect(id);
+              onMessage(`${id} declared. Reports about it will be linked as they come in.`);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -124,7 +249,9 @@ function Metric({ label, value, note, tone }: { label: string; value: string; no
   );
 }
 
-function TicketDetail({ game, ticket: t, onMessage }: { game: Game; ticket: Ticket; onMessage: (text: string) => void }) {
+function TicketDetail({ game, ticket: t, onMessage, onSelect }: { game: Game; ticket: Ticket; onMessage: (text: string) => void; onSelect: (id: string) => void }) {
+  const parent = game.incidents.parentOf(t.id);
+  const openIncidents = game.incidents.open();
   const [note, setNote] = useState('');
   const [result, setResult] = useState<{ ok: boolean; message: string; lines: ScoreLine[] } | null>(null);
   const q = game.queue;
@@ -152,6 +279,37 @@ function TicketDetail({ game, ticket: t, onMessage }: { game: Game; ticket: Tick
           {t.proactive && <span className="st st-resolved">Caught early</span>}
         </p>
         <h2>{t.draft.subject}</h2>
+        {parent ? (
+          <p className="td-parent">
+            Part of{' '}
+            <button className="link-btn" onClick={() => onSelect(parent.id)}>
+              {parent.id}
+            </button>{' '}
+            · {parent.title}
+          </p>
+        ) : (
+          q.isOpen(t) &&
+          openIncidents.length > 0 && (
+            <p className="td-parent">
+              <select
+                value=""
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  game.linkTicket(e.target.value, t.id);
+                  onMessage(`${t.id} linked to ${e.target.value}.`);
+                }}
+                aria-label="Link to an incident"
+              >
+                <option value="">Link to a NOC incident...</option>
+                {openIncidents.map((i) => (
+                  <option key={i.id} value={i.id}>
+                    {i.id}: {i.title}
+                  </option>
+                ))}
+              </select>
+            </p>
+          )
+        )}
       </header>
 
       <div className="td-grid">

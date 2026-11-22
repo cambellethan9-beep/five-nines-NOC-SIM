@@ -1,3 +1,4 @@
+import type { DeclareDraft } from './Incidents';
 import { useMemo, useState } from 'react';
 import type { Game } from '../game/game';
 import { NOC_PC_IP } from '../content/office';
@@ -10,7 +11,7 @@ function severityOf(message: string): number {
   return m ? Number(m[1]) : 6;
 }
 
-export function LogsView({ game, tick }: { game: Game; tick: number }) {
+export function LogsView({ game, tick, onDeclare }: { game: Game; tick: number; onDeclare: (d: DeclareDraft) => void }) {
   const [maxSev, setMaxSev] = useState(7);
   const [device, setDevice] = useState('all');
   const [query, setQuery] = useState('');
@@ -74,6 +75,7 @@ export function LogsView({ game, tick }: { game: Game; tick: number }) {
               <th>Device</th>
               <th>Severity</th>
               <th>Message</th>
+              <th aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -89,12 +91,21 @@ export function LogsView({ game, tick }: { game: Game; tick: number }) {
                     </span>
                   </td>
                   <td className="mono msg">{l.message}</td>
+                  <td>
+                    <button
+                      className="ghost small-ghost declare-btn"
+                      title="Declare an incident from this message"
+                      onClick={() => onDeclare({ source: `Logs: ${net.device(l.device).running.hostname} ${l.message}`, title: `${net.device(l.device).running.hostname}: ${l.message.replace(/^%[A-Z0-9_-]+-\d-[A-Z0-9_]+: /, '').slice(0, 70)}` })}
+                    >
+                      Declare
+                    </button>
+                  </td>
                 </tr>
               );
             })}
             {!rows.length && (
               <tr>
-                <td colSpan={4} className="empty">
+                <td colSpan={5} className="empty">
                   No messages match. Network devices log here when interfaces change state, someone logs in, or a config changes.
                 </td>
               </tr>

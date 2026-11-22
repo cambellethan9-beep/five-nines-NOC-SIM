@@ -361,6 +361,7 @@ export class TicketQueue {
     };
     if (draft.kind === 'request') t.id = t.id.replace('INC', 'CHG');
     this.tickets.unshift(t);
+    this.onOpened?.(t, faultAt);
     return t;
   }
 
@@ -369,6 +370,9 @@ export class TicketQueue {
     if (!t) throw new Error(`No ticket ${id}`);
     return t;
   }
+
+  /** Notified when a ticket opens (the game links it to a declared incident). */
+  onOpened?: (t: Ticket, faultAt: number) => void;
 
   /** Notified when a coworker has something to tell you (wired to chat by the game). */
   onCoworkerMessage?: (id: CoworkerId, text: string) => void;

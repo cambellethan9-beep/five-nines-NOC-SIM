@@ -1,3 +1,4 @@
+import type { DeclareDraft } from './Incidents';
 import type { Game, Sample } from '../game/game';
 import { NOC_PC_IP, SNMP_COMMUNITY } from '../content/office';
 import { compareIfNames, shortIfName } from '../sim/ifnames';
@@ -64,7 +65,7 @@ function Chart({ samples }: { samples: Sample[] }) {
   );
 }
 
-export function MonitorView({ game, tick, selected, onSelect }: Props) {
+export function MonitorView({ game, tick, selected, onSelect, onDeclare }: Props & { onDeclare: (d: DeclareDraft) => void }) {
   void tick;
   const net = game.net;
   const devices = game.monitored();
@@ -108,7 +109,12 @@ export function MonitorView({ game, tick, selected, onSelect }: Props) {
               NetSmart {current.model} · {ip !== null ? formatIp(ip) : 'no IP'} · {game.placeName(current.id)}
             </p>
           </div>
-          <span className={`pill pill-${booting ? 'boot' : up ? 'up' : 'down'}`}>{booting ? 'Booting' : up ? 'Up' : 'Down'}</span>
+          <span className="mon-head-right">
+            <button className="ghost small-ghost" onClick={() => onDeclare({ source: `Monitor: ${current.running.hostname} ${booting ? 'booting' : up ? 'up' : 'down'}`, title: `${current.running.hostname} ${up ? 'degraded' : 'down'}` })}>
+              Declare incident
+            </button>
+            <span className={`pill pill-${booting ? 'boot' : up ? 'up' : 'down'}`}>{booting ? 'Booting' : up ? 'Up' : 'Down'}</span>
+          </span>
         </header>
 
         {!snmp && !booting && (

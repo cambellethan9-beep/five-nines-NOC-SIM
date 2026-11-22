@@ -14,6 +14,11 @@ import { MonitorView } from './MonitorView';
 import { ShiftReportDialog } from './ShiftReport';
 import { Terminal } from './Terminal';
 import { TicketsView } from './TicketsView';
+import { SettingsDialog } from './Settings';
+import { AchievementsDialog } from './Achievements';
+import { PlacementOffer, PlacementResults, PlacementView } from './Placement';
+import type { DeclareDraft } from './Incidents';
+import { applyTheme, loadTheme } from './theme';
 
 const TICK_MS = 250;
 
@@ -79,6 +84,55 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   helpOpenRef.current = helpOpen;
   const [noteToOpen, setNoteToOpen] = useState<string | null>(null);
   const toastTimer = useRef<number>();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [achOpen, setAchOpen] = useState(false);
+  const [declareDraft, setDeclareDraft] = useState<DeclareDraft | null>(null);
+  const declareFrom = (draft: DeclareDraft) => {
+    setDeclareDraft(draft);
+    setView('tickets');
+  };
+  const [theme, setTheme] = useState(loadTheme);
+  useEffect(() => applyTheme(theme), [theme]);
+
+  // Keyboard shortcuts: number keys switch views (Alt+number works even while typing in the console).
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      if (document.querySelector('.modal-backdrop')) return;
+      if (e.key === 'Escape' && typing) {
+        el!.blur();
+        return;
+      }
+      if (typing && !e.altKey) return;
+      if (!typing && e.altKey && !/^Digit[1-8]$/.test(e.code)) return;
+      const digit = /^Digit([1-8])$/.exec(e.code)?.[1];
+      if (digit) {
+        e.preventDefault();
+        const n = Number(digit);
+        if (n <= VIEWS.length) {
+          setNoteToOpen(null);
+          setView(VIEWS[n - 1].id);
+        } else if (n === 7) setDockOpen((o) => !o);
+        else if (n === 8) {
+          setDockOpen(true);
+          window.setTimeout(() => {
+            const input = [...document.querySelectorAll<HTMLInputElement>('.terminal-input, .desk-input')].find((i) => i.offsetParent !== null);
+            input?.focus();
+          }, 0);
+        }
+        return;
+      }
+      if (e.key === '/' && !typing) {
+        e.preventDefault();
+        setView('tickets');
+        window.setTimeout(() => document.getElementById('ticket-search')?.focus(), 0);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Autosave, plus a save whenever the tab is hidden or closed.
   useEffect(() => {
@@ -112,6 +166,12 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   useEffect(() => {
     if (view === 'logs') setSeenLogs(game.net.logs.length);
   }, [view, tick, game]);
+
+  // Announce achievements as they're earned.
+  useEffect(() => {
+    const fresh = game.achievements.fresh.splice(0);
+    if (fresh.length) say(`Achievement unlocked: ${fresh.map((a) => a.name).join(', ')}`);
+  }, [tick, game]);
 
   // Announce new tickets as they arrive.
   useEffect(() => {
@@ -165,13 +225,19 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
             At <strong>{atHome ? 'your desk' : game.placeName(game.location)}</strong>
           </span>
           <span className="clock" title="Time on shift">
-            Shift {shiftClock(game.shiftTime)}
+            {game.inPlacement ? 'Placement shift' : `Shift ${shiftClock(game.shiftTime)}`}
           </span>
           <span className={`saved ${saveFailed ? 'bad-text' : ''}`} title="Progress is saved in this browser">
             {saveFailed ? "Can't save in this browser" : savedAgo === null ? 'Autosaves every 15s' : `Saved ${savedAgo}s ago`}
           </span>
           <button className="ghost small-ghost" onClick={() => setHelpOpen(true)}>
             Help
+          </button>
+          <button className="ghost small-ghost" onClick={() => setAchOpen(true)}>
+            Achievements
+          </button>
+          <button className="ghost small-ghost" onClick={() => setSettingsOpen(true)}>
+            Settings
           </button>
           <button className="ghost small-ghost" onClick={() => setConfirmNew(true)}>
             New game
@@ -189,12 +255,13 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
       <div className="body">
         <aside className="rail">
           <nav className="views" aria-label="Views">
-            {VIEWS.map((v) => (
+            {VIEWS.map((v, i) => (
               <button key={v.id} className={`view-btn ${view === v.id ? 'on' : ''}`} onClick={() => {
                   setNoteToOpen(null);
                   setView(v.id);
                 }} aria-current={view === v.id}>
                 <span className="view-label">
+                  <kbd className="view-key" aria-hidden="true">{i + 1}</kbd>
                   {v.label}
                   {v.id === 'logs' && newLogs > 0 && view !== 'logs' && <span className="badge">{newLogs > 99 ? '99+' : newLogs}</span>}
                   {v.id === 'tickets' && unacked > 0 && <span className="badge hot">{unacked} new</span>}
@@ -210,10 +277,11 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
 
         <main className="main">
           <div className="view-area">
-            {view === 'tickets' && <TicketsView game={game} tick={tick} selected={ticketSel} onSelect={setTicketSel} onMessage={say} />}
+            {view === 'tickets' && game.inPlacement && <PlacementView game={game} onMessage={say} />}
+            {view === 'tickets' && !game.inPlacement && <TicketsView game={game} tick={tick} selected={ticketSel} onSelect={setTicketSel} onMessage={say} declareDraft={declareDraft} onDeclare={setDeclareDraft} />}
             {view === 'map' && <MapView game={game} tick={tick} selected={selected} onSelect={setSelected} onConsole={walk} onMonitor={openMonitor} />}
-            {view === 'monitor' && <MonitorView game={game} tick={tick} selected={monitorSel} onSelect={setMonitorSel} />}
-            {view === 'logs' && <LogsView game={game} tick={tick} />}
+            {view === 'monitor' && <MonitorView game={game} tick={tick} selected={monitorSel} onSelect={setMonitorSel} onDeclare={declareFrom} />}
+            {view === 'logs' && <LogsView game={game} tick={tick} onDeclare={declareFrom} />}
             {view === 'chat' && <ChatView game={game} tick={tick} active={chatSel} onSelect={setChatSel} />}
             {view === 'docs' && <DocsView key={noteToOpen ?? 'docs'} game={game} tick={tick} openNote={noteToOpen ?? undefined} />}
           </div>
@@ -298,6 +366,31 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
         </div>
       )}
 
+      {!game.introPending && game.placementOffered && !game.placement && game.queue.shift === 1 && (
+        <PlacementOffer
+          onTake={() => {
+            game.startPlacement();
+            setView('tickets');
+            setTick((n) => n + 1);
+          }}
+          onDecline={() => {
+            game.declinePlacement();
+            setTick((n) => n + 1);
+          }}
+        />
+      )}
+      {game.inPlacement && game.placement?.state.done && (
+        <PlacementResults
+          game={game}
+          onStart={() => {
+            game.finishPlacement();
+            setTick((n) => n + 1);
+          }}
+        />
+      )}
+      {achOpen && <AchievementsDialog game={game} onClose={() => setAchOpen(false)} />}
+      {settingsOpen && <SettingsDialog theme={theme} onChange={setTheme} onClose={() => setSettingsOpen(false)} />}
+
       {toast && (
         <div className="toast" role="status">
           {toast}
@@ -311,6 +404,17 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
   const stats = game.shiftStats();
   const open = game.queue.openTickets();
   const top = open.reduce((best, x) => Math.min(best, x.priority), 5);
+  if (game.inPlacement) {
+    return (
+      <button className="shift-card" onClick={onOpen} aria-label="Placement shift">
+        <span className="sc-row">
+          <span className="sc-label">Placement shift</span>
+          <span className="sc-value">{game.placement?.score ?? 0}</span>
+        </span>
+        <span className="sc-ok">The shift clock starts after the test</span>
+      </button>
+    );
+  }
   const m = Math.floor(game.shiftRemaining / 60000);
   return (
     <button className="shift-card" onClick={onOpen} aria-label="Shift summary, open tickets">
@@ -339,6 +443,7 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
         <span className="sc-ok">All services up · open ticket</span>
       )}
       <span className="sc-rank">{stats.rankName}</span>
+      {game.achievements.title() && <span className="sc-title">"{game.achievements.title()}"</span>}
       {game.queue.rank.promotion && (
         <span className="sc-promo">
           Promotion {game.queue.qualifyingShifts}/{game.queue.rank.promotion.shifts} shifts at {game.queue.rank.promotion.pointsPerShift}+
