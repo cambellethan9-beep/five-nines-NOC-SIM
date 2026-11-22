@@ -11,7 +11,7 @@ export interface SwitchportConfig {
   /** 'all' or an explicit sorted list of VLAN IDs. */
   allowedVlans: 'all' | number[];
   /** Only meaningful on L3 switches, which must be set to dot1q before trunking. */
-  trunkEncapsulation: 'auto' | 'dot1q';
+  trunkEncapsulation: 'auto' | 'dot1q' | 'isl';
 }
 
 export interface IpAssignment {
@@ -26,8 +26,8 @@ export interface InterfaceConfig {
   ip: IpAssignment | null;
   /** null means the port is routed (router ports, hosts, `no switchport`). */
   switchport: SwitchportConfig | null;
-  /** 802.1Q subinterface encapsulation (router-on-a-stick). */
-  encapsulation: { vlan: number; native: boolean } | null;
+  /** Subinterface encapsulation (router-on-a-stick). `type` is absent on older saves, meaning dot1q. */
+  encapsulation: { vlan: number; native: boolean; type?: 'dot1q' | 'isl' } | null;
   speed: 'auto' | 10 | 100 | 1000;
   duplex: 'auto' | 'half' | 'full';
 }

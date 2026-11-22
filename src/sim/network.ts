@@ -237,8 +237,11 @@ export class Network {
         if (device.vlans[sp.accessVlan]) result.set('u', vlanNode(device.id, sp.accessVlan));
         return result;
       }
+      // ISL tags every VLAN (it has no native VLAN); 802.1Q sends the native VLAN untagged.
+      // An ISL end and a dot1Q end share no channels, so a mismatched trunk passes nothing.
+      const isl = device.kind === 'l3switch' && sp.trunkEncapsulation === 'isl';
       for (const vlan of this.vlansCarried(device, ifc)) {
-        result.set(vlan === sp.nativeVlan ? 'u' : `t${vlan}`, vlanNode(device.id, vlan));
+        result.set(isl ? `i${vlan}` : vlan === sp.nativeVlan ? 'u' : `t${vlan}`, vlanNode(device.id, vlan));
       }
       return result;
     }
@@ -246,7 +249,8 @@ export class Network {
     result.set('u', ifNode(device.id, ifc.name));
     for (const sub of Object.values(device.running.interfaces)) {
       if (parentIfName(sub.name) !== ifc.name || !sub.encapsulation || !this.isUp(device.id, sub.name)) continue;
-      result.set(sub.encapsulation.native ? 'u' : `t${sub.encapsulation.vlan}`, ifNode(device.id, sub.name));
+      const e = sub.encapsulation;
+      result.set(e.type === 'isl' ? `i${e.vlan}` : e.native ? 'u' : `t${e.vlan}`, ifNode(device.id, sub.name));
     }
     return result;
   }

@@ -99,6 +99,14 @@ This keeps the game fast and deterministic and is accurate enough for CCNA-level
 - [x] **Physical console access costs time:** changing consoles costs 30 seconds of game time,
       so SSH from the NOC PC is the fast path once a device is reachable and configured for it
 
+- [x] **Escalation to coworkers:** Jordan Reyes (Tier 1, 6 months ahead; 50% credit, handles simple tickets, may hand
+      harder ones back), Owen Price (Tier 2, 2 years; 35% credit, explains fixes, random facts, one hint per ticket in
+      chat), Gloria Haines (NOC Manager, 10 years; 25% credit, solves anything, penalty for routine tickets). They really
+      fix the network; upward-only escalation by rank (none left at NOC Manager)
+- [x] **Router-on-a-stick and ISL:** spare CR-CORE1 Fa0/23 to CR-RTR1 Gi0/2 cable (in the docs) makes ROAS possible;
+      `encapsulation isl` on router subinterfaces and `switchport trunk encapsulation isl|negotiate` on L3 switches;
+      ISL and dot1Q ends don't interoperate
+
 **Done when:** a new player can finish the tutorial and a short shift of handcrafted tickets, and get scored.
 
 ---

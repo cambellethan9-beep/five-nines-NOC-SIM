@@ -91,10 +91,13 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
   for (const ifc of sortedInterfaces(config)) {
     lines.push(`interface ${ifc.name}`);
     if (ifc.description) lines.push(` description ${ifc.description}`);
-    if (ifc.encapsulation) lines.push(` encapsulation dot1Q ${ifc.encapsulation.vlan}${ifc.encapsulation.native ? ' native' : ''}`);
+    if (ifc.encapsulation) {
+      const e = ifc.encapsulation;
+      lines.push(e.type === 'isl' ? ` encapsulation isl ${e.vlan}` : ` encapsulation dot1Q ${e.vlan}${e.native ? ' native' : ''}`);
+    }
     const sp = ifc.switchport;
     if (sp) {
-      if (device.kind === 'l3switch' && sp.trunkEncapsulation === 'dot1q') lines.push(' switchport trunk encapsulation dot1q');
+      if (device.kind === 'l3switch' && sp.trunkEncapsulation !== 'auto') lines.push(` switchport trunk encapsulation ${sp.trunkEncapsulation}`);
       if (sp.accessVlan !== 1) lines.push(` switchport access vlan ${sp.accessVlan}`);
       if (sp.nativeVlan !== 1) lines.push(` switchport trunk native vlan ${sp.nativeVlan}`);
       if (sp.allowedVlans !== 'all') {
@@ -219,7 +222,8 @@ export function showInterface(net: Network, device: Device, ifc: InterfaceConfig
   if (ifc.ip && !ifc.switchport) lines.push(`  Internet address is ${formatIp(ifc.ip.address)}/${ifc.ip.prefix}`);
   const bw = hw ? hw.maxSpeed * 1000 : 1000000;
   lines.push(`  MTU 1500 bytes, BW ${bw} Kbit/sec, DLY 10 usec,`, '     reliability 255/255, txload 1/255, rxload 1/255');
-  if (ifc.encapsulation) lines.push(`  Encapsulation 802.1Q Virtual LAN, Vlan ID  ${ifc.encapsulation.vlan}.`);
+  if (ifc.encapsulation?.type === 'isl') lines.push(`  Encapsulation ISL Virtual LAN, Color ${ifc.encapsulation.vlan}.`);
+  else if (ifc.encapsulation) lines.push(`  Encapsulation 802.1Q Virtual LAN, Vlan ID  ${ifc.encapsulation.vlan}.`);
   else lines.push('  Encapsulation ARPA, loopback not set');
   if (hw) {
     const up = net.isUp(device.id, ifc.name);
@@ -278,7 +282,8 @@ export function showInterfacesTrunk(net: Network, device: Device): string[] {
     ifc.switchport!.mode === 'trunk' ? 'on' : ifc.switchport!.mode === 'dynamic desirable' ? 'desirable' : 'auto';
   const lines = ['', 'Port        Mode             Encapsulation  Status        Native vlan'];
   for (const t of trunks) {
-    const encap = t.switchport!.mode === 'trunk' ? '802.1q' : 'n-802.1q';
+    const isl = device.kind === 'l3switch' && t.switchport!.trunkEncapsulation === 'isl';
+    const encap = isl ? 'isl' : t.switchport!.mode === 'trunk' ? '802.1q' : 'n-802.1q';
     lines.push(`${shortIfName(t.name).padEnd(12)}${modeWord(t).padEnd(17)}${encap.padEnd(15)}${'trunking'.padEnd(14)}${t.switchport!.nativeVlan}`);
   }
   lines.push('', 'Port        Vlans allowed on trunk');

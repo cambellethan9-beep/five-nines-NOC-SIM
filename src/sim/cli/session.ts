@@ -207,6 +207,8 @@ const HI: Record<string, string> = {
   list: 'VLAN IDs of the allowed VLANs when this port is in trunking mode',
   encapsulation: 'Set encapsulation type for an interface',
   dot1q: 'Interface uses only 802.1q trunking encapsulation when trunking',
+  isl: 'Interface uses only ISL trunking encapsulation when trunking',
+  negotiate: 'Device will negotiate trunking encapsulation with peer on interface',
   dot1Q: 'IEEE 802.1Q Virtual LAN',
   speed: 'Configure speed operation.',
   duplex: 'Configure duplex operation.',
@@ -799,6 +801,7 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
   if (mode === 'subif') {
     t.add('encapsulation dot1Q <number:id:1-4094>', HI, each((_c, ifc, a) => void (ifc.encapsulation = { vlan: a.id as number, native: false })));
     t.add('encapsulation dot1Q <number:id:1-4094> native', HI, each((_c, ifc, a) => void (ifc.encapsulation = { vlan: a.id as number, native: true })));
+    t.add('encapsulation isl <number:id:1-4094>', HI, each((_c, ifc, a) => void (ifc.encapsulation = { vlan: a.id as number, native: false, type: 'isl' })));
   }
 
   if (mode !== 'subif') {
@@ -862,6 +865,13 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
     t.add('no switchport trunk allowed vlan', HI, needSp((_c, ifc) => void (ifc.switchport!.allowedVlans = 'all')));
     if (kind === 'l3switch') {
       t.add('switchport trunk encapsulation dot1q', HI, needSp((_c, ifc) => void (ifc.switchport!.trunkEncapsulation = 'dot1q')));
+      t.add('switchport trunk encapsulation isl', HI, needSp((_c, ifc) => void (ifc.switchport!.trunkEncapsulation = 'isl')));
+      t.add('switchport trunk encapsulation negotiate', HI, needSp((_c, ifc) => {
+        if (ifc.switchport!.mode === 'trunk') {
+          return 'Command rejected: An interface whose trunk encapsulation is "Auto" can not be configured to "trunk" mode.';
+        }
+        ifc.switchport!.trunkEncapsulation = 'auto';
+      }));
       t.add('no switchport', HI, each((c, ifc) => {
         if (!c.dev.hardware[ifc.name]) return INVALID;
         ifc.switchport = null;

@@ -113,6 +113,7 @@ export function predecessorDocs(office: Office): Doc[] {
               ['CR-CORE1 Gi0/1', 'CR-ACC1 Gi0/1', '802.1Q trunk'],
               ['CR-CORE1 Gi0/2', 'CR-ACC2 Gi0/1', '802.1Q trunk'],
               ['CR-CORE1 Fa0/10', 'NOC-PC (10.10.99.50)', 'Access, VLAN 99'],
+              ['CR-CORE1 Fa0/23', 'CR-RTR1 Gi0/2', 'Spare cable, not configured (router port is shut)'],
             ],
           },
         },

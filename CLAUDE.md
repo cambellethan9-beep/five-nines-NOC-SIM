@@ -33,6 +33,9 @@ of the CCNA core list in the order written there.
   (`ssh nocadmin@<ip>`, no password); default username `nocadmin`.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
 - Recurring incidents are realistic: most tickets should come from a few common problems.
+- **Escalation** (`src/game/coworkers.ts`): Jordan (Tier 1 peer, 50% credit), Owen (Tier 2, 35%), Gloria (NOC Manager,
+  25%, penalty for routine tickets). Upward-only by rank. Coworkers really fix it and explain via `draft.explain`;
+  Owen gives one `draft.hint` per ticket in chat. Every ticket template needs `explain` and `hint`.
 
 ## Open questions (see the end of ROADMAP.md)
 Downtime drain scale; whether the 10× speed button ships (it inflates healthy-network income); release timing.

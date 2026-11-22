@@ -285,6 +285,9 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   net.connect('internet', nic(internet), 'isp', 'GigabitEthernet0/1');
   net.connect('isp', 'GigabitEthernet0/0', 'rtr1', 'GigabitEthernet0/1');
   net.connect('rtr1', 'GigabitEthernet0/0', 'core1', 'FastEthernet0/24');
+  // A spare run between the core and the router, never configured. Useful for router-on-a-stick.
+  net.connect('rtr1', 'GigabitEthernet0/2', 'core1', 'FastEthernet0/23');
+  core.running.interfaces['FastEthernet0/23'].description = 'Spare to CR-RTR1 Gi0/2';
   SERVERS.forEach((s, i) => net.connect(s.id, nic(net.device(s.id)), 'core1', `FastEthernet0/${i + 1}`));
   net.connect('noc', nic(noc), 'core1', 'FastEthernet0/10');
 
