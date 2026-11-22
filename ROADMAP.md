@@ -135,7 +135,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] Output filters: `| include`, `| exclude`, `| section`, `| begin`
 - [ ] `show mac address-table`, `show interfaces counters errors`, duplex mismatch symptoms (CRC, late collisions)
 - [x] **ACLs:** standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
-- [ ] **NAT/PAT:** inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
+- [x] **NAT/PAT:** inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
 - [ ] **DHCP:** IOS DHCP server, pools, exclusions, `ip helper-address`; PCs switch to DHCP clients (169.254.x.x when it fails)
 - [ ] **DNS:** `ip name-server`, `ip host`, PCs resolve names (ping by name, "websites won't load but 8.8.8.8 works")
 - [ ] **Syslog:** `logging host`, `logging trap`, `service timestamps`; devices only appear in the Logs tab once configured
@@ -181,7 +181,11 @@ error messages, the faults it can cause, and ticket templates that use it.
          `ip access-group in/out`; `access-class` on vty lines; hit counters; `show ip interface`; enforced on real flows
          (HTTPS, SMB, DNS, printing, SSH, DHCP relay, ICMP, traceroute `!A`), replies checked too (`established`).
          Tickets: web filter (hard), printer wildcard (moderate), vty lockout (moderate)
-  3. [ ] NAT/PAT: inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
+  3. [x] NAT/PAT: inside/outside, overload (PAT with port reuse), pools (one-to-one runs out), static one-to-one and port
+         forwards (incl. `interface`), IOS order of operations with ACLs, translation table from real traffic,
+         `show ip nat translations|statistics`, `clear ip nat translation *`. The ISP stand-in is gone: CR-RTR1 runs the
+         predecessor's PAT. Network gear only listens on its management ports. Tickets: NAT ACL narrowed (moderate),
+         overload dropped (hard), `ip nat inside` missing (easy)
   4. [ ] DHCP: IOS DHCP server, pools, exclusions. *Done early:* staff PCs are DHCP clients of CR-DC01 (reservations),
          `ip helper-address` relay, APIPA on failure, `ipconfig /release /renew /all`, renew on link-up
   5. [ ] DNS: `ip name-server`, `ip host` on IOS. *Done early:* PC resolver with cache, CR-DC01 zone, `nslookup`,

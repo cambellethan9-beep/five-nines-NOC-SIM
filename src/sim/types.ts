@@ -1,4 +1,5 @@
 import type { Acl } from './acl';
+import type { NatConfig, NatEntry, NatStats } from './nat';
 import type { Ipv4 } from './ip';
 
 export type DeviceKind = 'router' | 'switch' | 'l3switch' | 'pc' | 'server' | 'printer';
@@ -35,6 +36,8 @@ export interface InterfaceConfig {
   helpers?: Ipv4[];
   /** `ip access-group NAME in|out`. */
   accessGroup?: { in?: string; out?: string };
+  /** `ip nat inside` / `ip nat outside`. */
+  nat?: 'inside' | 'outside';
 }
 
 export interface StaticRoute {
@@ -87,6 +90,8 @@ export interface DeviceConfig {
   authorizedKeys: { user: string; key: string }[];
   /** IPv4 access lists by name or number (absent on older saves). */
   acls?: Record<string, Acl>;
+  /** `ip nat pool` and `ip nat inside source ...` rules. */
+  nat?: NatConfig;
 }
 
 export interface PortHardware {
@@ -131,6 +136,9 @@ export interface Device {
   dnsZone?: Record<string, Ipv4>;
   /** ACL hit counters ("ACL:seq" -> matches). Runtime state, not config; reset by `clear access-list counters`. */
   aclHits?: Record<string, number>;
+  /** NAT translation table and counters (runtime state, cleared by `clear ip nat translation *`). */
+  natTable?: NatEntry[];
+  natStats?: NatStats;
 }
 
 export interface LinkEnd {

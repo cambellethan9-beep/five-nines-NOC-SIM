@@ -20,7 +20,10 @@ describe('router-on-a-stick', () => {
     run(g.net, 'core1', ['en', 'conf t', 'vlan 50', 'name PARTNERS', 'exit', 'int fa0/23', 'switchport trunk encapsulation dot1q', 'switchport mode trunk', 'end']);
     const out = run(g.net, 'rtr1', ['en', 'conf t', 'int g0/2', 'no shut', 'int g0/2.50', 'encapsulation dot1Q 50', 'ip address 10.10.50.1 255.255.255.0', 'end']);
     expect(out).not.toContain('%');
-    expect(g.queue.resolve(t.id, 'ROAS on CR-RTR1').ok).toBe(true);
+    // Partners reach the servers now, but their internet traffic leaves untranslated until the subinterface is NAT inside.
+    expect(g.queue.resolve(t.id, 'ROAS on CR-RTR1').ok).toBe(false);
+    run(g.net, 'rtr1', ['en', 'conf t', 'int g0/2.50', 'ip nat inside', 'end']);
+    expect(g.queue.resolve(t.id, 'ROAS on CR-RTR1, NAT inside').ok).toBe(true);
     expect(run(g.net, 'rtr1', ['en', 'show run'])).toContain('interface GigabitEthernet0/2.50\n encapsulation dot1Q 50\n ip address 10.10.50.1 255.255.255.0');
   });
 

@@ -11,6 +11,7 @@ import { CURRENT_NIC_DRIVER } from '../sim/types';
 import { dhcpRequest, forceApipa } from '../sim/dhcp';
 import { reachService } from './services';
 import { ACL_TEMPLATES } from './ticketsAcl';
+import { NAT_TEMPLATES } from './ticketsNat';
 import { flushDns, resolve } from '../sim/dns';
 import {
   FS01, INTERNET, NIC, floorOf, freePeople, freePorts, person, pickPerson, portLabel, reaches, userIncident,
@@ -624,7 +625,7 @@ const partnerVlan: TicketTemplate = {
       difficulty: 'expert',
       truePriority: 4,
       subject: 'Change request: separate network for the partners',
-      explain: 'Created VLAN 50 (PARTNERS) on CR-CORE1 and CR-ACC2, gave CR-CORE1 a VLAN 50 interface at 10.10.50.1, and moved the partners\' two ports into VLAN 50.',
+      explain: 'Created VLAN 50 (PARTNERS) on CR-CORE1 and CR-ACC2, gave CR-CORE1 a VLAN 50 interface at 10.10.50.1, and moved the partners\' two ports into VLAN 50. (Routing it on CR-RTR1 with a subinterface works too, but that subinterface then needs `ip nat inside` or the partners get no internet.)',
       hint: 'The VLAN has to exist on every switch in the path, it needs a gateway, and the ports have to move. Router-on-a-stick works too if the router has a trunk.',
       description: [
         `Our insurer wants the partners' PCs on their own network segment. Please set up:`,
@@ -696,6 +697,7 @@ export const TEMPLATES: TicketTemplate[] = [
   staleDns,
   helperMissing,
   ...ACL_TEMPLATES,
+  ...NAT_TEMPLATES,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

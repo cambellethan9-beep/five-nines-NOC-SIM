@@ -199,8 +199,7 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   isp.running.interfaces['GigabitEthernet0/0'].ip = ip('203.0.113.1 255.255.255.252');
   isp.running.interfaces['GigabitEthernet0/1'].shutdown = false;
   isp.running.interfaces['GigabitEthernet0/1'].ip = ip('8.8.8.1 255.255.255.0');
-  // Stand-in for NAT: the ISP routes our private space back to us.
-  isp.running.staticRoutes.push(route('10.0.0.0', '255.0.0.0', '203.0.113.2'));
+  // The ISP knows nothing about our private 10.x space: only NAT on CR-RTR1 gets replies home.
   isp.running.lines.vty.transport = { ssh: false, telnet: false };
   place('internet', 650, 40, 'outside');
   place('isp', 650, 128, 'outside');
@@ -216,6 +215,13 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   g1.description = `WAN - ${ISP.name} circuit ${ISP.circuit}`;
   g1.ip = ip('203.0.113.2 255.255.255.252');
   rtr.running.staticRoutes.push(route('0.0.0.0', '0.0.0.0', '203.0.113.1'), route('10.10.0.0', '255.255.0.0', '10.0.0.2'));
+  // PAT: every inside address shares the WAN address on the way out.
+  g0.nat = 'inside';
+  g1.nat = 'outside';
+  rtr.running.acls = {
+    '1': { name: '1', type: 'standard', named: false, entries: [{ seq: 10, action: 'permit', src: { addr: parseIp('10.10.0.0')!, wildcard: parseIp('0.0.255.255')! } }] },
+  };
+  rtr.running.nat = { pools: {}, rules: [{ kind: 'dynamic', acl: '1', iface: 'GigabitEthernet0/1', overload: true }] };
   place('rtr1', 650, 228, 'server');
 
   const core = net.addDevice(createDevice('core1', 'NS-S3600', 'CR-CORE1'));

@@ -22,7 +22,7 @@ export function sshEnabled(device: Device): boolean {
 function findTarget(net: Network, clientId: string, ip: Ipv4, port: number): Device | null {
   for (const device of net.devices.values()) {
     if (!net.isOnline(device) || !ownsAddress(net, device, ip)) continue;
-    return canReach(net, clientId, ip, { proto: 'tcp', port }) ? device : null;
+    return canReach(net, clientId, ip, { proto: 'tcp', port }, false, false) ? device : null;
   }
   return null;
 }
@@ -353,7 +353,7 @@ export class RemoteClient {
   poll(): string[] {
     if (this.state !== 'connected') return [];
     const target = this.target!;
-    if (!this.net.isOnline(target) || !canReach(this.net, this.clientId, this.opts.ip, { proto: 'tcp', port: this.opts.port })) {
+    if (!this.net.isOnline(target) || !canReach(this.net, this.clientId, this.opts.ip, { proto: 'tcp', port: this.opts.port }, false, false)) {
       const out: string[] = [''];
       this.close(out, true);
       return out;

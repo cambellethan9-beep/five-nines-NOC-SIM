@@ -1,6 +1,7 @@
 // Text output for IOS show commands. Formats follow real IOS output closely, so what players learn transfers.
 
 import { aclConfigLines } from './acl';
+import { natConfigLines } from './nat';
 import { cdpIfName, compareIfNames, shortIfName } from './ifnames';
 import { classfulPrefix, formatIp, prefixToMask } from './ip';
 import type { Network } from './network';
@@ -113,6 +114,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
       if (ifc.accessGroup?.in) lines.push(` ip access-group ${ifc.accessGroup.in} in`);
       if (ifc.accessGroup?.out) lines.push(` ip access-group ${ifc.accessGroup.out} out`);
       for (const h of ifc.helpers ?? []) lines.push(` ip helper-address ${formatIp(h)}`);
+      if (ifc.nat) lines.push(` ip nat ${ifc.nat}`, ' ip virtual-reassembly in');
     }
     const physical = device.hardware[ifc.name] !== undefined;
     if (physical) {
@@ -122,6 +124,8 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
     if (ifc.shutdown) lines.push(' shutdown');
     lines.push('!');
   }
+  const natLines = natConfigLines(config.nat);
+  if (natLines.length) lines.push(...natLines);
   if (config.defaultGateway !== null && !routes(device)) lines.push(`ip default-gateway ${formatIp(config.defaultGateway)}`);
   for (const r of config.staticRoutes) {
     const target = r.exitIf ?? formatIp(r.nextHop!);

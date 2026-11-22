@@ -29,6 +29,7 @@ import type { Device, DeviceKind, InterfaceConfig } from '../types';
 import { isSwitchKind } from '../types';
 import { addAclGlobal, addAclInterface, addAclLine, addAclMode, addAclShows } from './aclCommands';
 import { caret, commit, INVALID, type Ctx } from './context';
+import { addNatGlobal, addNatInterface, addNatShows } from './natCommands';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
 
@@ -233,6 +234,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
     t.add('show interfaces trunk', H, (c) => c.out.push(...showInterfacesTrunk(c.net, c.dev)));
   }
   addAclShows(t, privileged);
+  if (kind === 'router') addNatShows(t, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -545,6 +547,7 @@ function buildConfig(kind: DeviceKind): Tree {
   });
   addRemoteAccessConfig(t);
   addAclGlobal(t);
+  if (kind === 'router') addNatGlobal(t);
   addConfigNav(t, HC);
   return t;
 }
@@ -769,6 +772,7 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
   t.add('shutdown', HI, each((_c, ifc) => void (ifc.shutdown = true)));
   t.add('no shutdown', HI, each((_c, ifc) => void (ifc.shutdown = false)));
   addAclInterface(t);
+  if (kind === 'router') addNatInterface(t);
   t.add('description <line:text>', HI, each((_c, ifc, a) => void (ifc.description = (a.text as string).slice(0, 240))));
   t.add('no description', HI, each((_c, ifc) => void (ifc.description = null)));
 
