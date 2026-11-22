@@ -3,7 +3,8 @@
 
 import { textToBlocks } from '../content/doctext';
 import { predecessorDocs, type Doc } from '../content/docs';
-import { buildOffice, ZONES, type Office } from '../content/office';
+import { buildOffice, NOC_PC_IP, SNMP_COMMUNITY, ZONES, type Office } from '../content/office';
+import { snmpAnswers } from '../sim/mgmt';
 import { Ambient } from '../sim/ambient';
 import { DhcpWatcher } from '../sim/dhcp';
 import { CliSession } from '../sim/cli/session';
@@ -461,6 +462,11 @@ export class Game {
       if (ifc.ip && !ifc.switchport) return ifc.ip.address;
     }
     return null;
+  }
+
+  /** Does the NOC's SNMP poller get answers from this device? (Hosts are watched by ping only.) */
+  snmpOk(device: Device): boolean {
+    return this.net.isOnline(device) && snmpAnswers(this.net, device, { ip: parseIp(NOC_PC_IP)!, community: SNMP_COMMUNITY });
   }
 
   /** Whether the NOC's monitoring would show this device as up (ping from the NOC PC). */

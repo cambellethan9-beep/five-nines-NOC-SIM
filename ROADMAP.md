@@ -138,9 +138,9 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] **NAT/PAT:** inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
 - [x] **DHCP:** IOS DHCP server, pools, exclusions, `ip helper-address`; PCs switch to DHCP clients (169.254.x.x when it fails)
 - [x] **DNS:** `ip name-server`, `ip host`, PCs resolve names (ping by name, "websites won't load but 8.8.8.8 works")
-- [ ] **Syslog:** `logging host`, `logging trap`, `service timestamps`; devices only appear in the Logs tab once configured
-- [ ] **NTP:** client/server, `show ntp status`, clocks finally leave 1993
-- [ ] **SNMP:** communities, v2c vs v3; devices only appear in Monitor once configured
+- [x] **Syslog:** `logging host`, `logging trap`, `service timestamps`; devices only appear in the Logs tab once configured
+- [x] **NTP:** client/server, `show ntp status`, clocks finally leave 1993
+- [x] **SNMP:** communities, v2c vs v3; devices only appear in Monitor once configured
 - [ ] **OSPFv2:** single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
 - [ ] **STP (PVST+):** root bridge, PortFast, BPDU guard, loops and broadcast storms
 - [ ] **Port security:** max MACs, sticky, violation modes, err-disabled, `errdisable recovery`
@@ -194,7 +194,11 @@ error messages, the faults it can cause, and ticket templates that use it.
   5. [x] DNS: `ip name-server`, `ip host`, `show hosts`, ping/traceroute by name, EXEC typos asking the configured
          server, public DNS at 8.8.8.8 for guests. *Done earlier:* PC resolver with cache, CR-DC01 zone, `nslookup`,
          ping/tracert by name, `ipconfig /displaydns /flushdns`, LedgerWorks resolved by name
-  6. [ ] Syslog, NTP and SNMP: `logging host`/`trap`, `service timestamps`, NTP client/server, SNMP v2c/v3; devices only
+  6. [x] Syslog, NTP and SNMP (built): `logging host/trap/buffered/console/monitor`, `service timestamps log datetime|uptime`,
+         `show logging`; `ntp server/master`, `show ntp status|associations`, `clock set`, unsynced clocks run from 1993
+         with `*`; `snmp-server community [acl]`, location/contact, v3 groups/users, `show snmp`. The Logs tab only shows
+         what reaches NOC-PC's syslog server; Monitor graphs need the `cedar-mon` SNMP poll to answer. CR-ACC2 (a
+         replacement switch) never got any of it, though the README says otherwise. Originally planned: `logging host`/`trap`, `service timestamps`, NTP client/server, SNMP v2c/v3; devices only
          appear in Logs and Monitor once configured
   7. [ ] OSPFv2: single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
   8. [ ] STP (PVST+, PortFast, BPDU guard), port security (sticky, violations, err-disabled, recovery), EtherChannel

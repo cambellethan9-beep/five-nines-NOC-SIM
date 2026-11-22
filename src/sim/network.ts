@@ -6,6 +6,8 @@ import { parentIfName, shortIfName } from './ifnames';
 import { Rng } from './rng';
 import type { Device, InterfaceConfig, InterfaceState, Link, LinkEnd } from './types';
 import { isHostKind } from './types';
+import type { Ipv4 } from './ip';
+import { logStamp, syslogDelivered } from './mgmt';
 
 export interface LogEntry {
   seq: number;
@@ -13,10 +15,14 @@ export interface LogEntry {
   time: number;
   /** Message without timestamp, e.g. "%LINK-3-UPDOWN: Interface ..., changed state to up" */
   message: string;
+  /** The device's own timestamp for the line (its clock and `service timestamps` settings at the time). */
+  stamp?: string;
+  /** Did it reach the NOC's syslog collector? (Absent on older saves: treated as yes.) */
+  collected?: boolean;
 }
 
-/** Sim time 0 corresponds to this wall-clock start (IOS without NTP boots to Mar 1 1993). */
-const EPOCH = Date.UTC(1993, 2, 1, 0, 0, 0);
+/** Sim time 0 is the true time at the start of the game. Devices without NTP keep their own (1993) clocks. */
+const EPOCH = Date.UTC(2026, 3, 14, 8, 0, 0);
 
 export const BOOT_TIME_MS = 45_000;
 
@@ -26,6 +32,8 @@ export class Network {
   readonly devices = new Map<string, Device>();
   readonly links: Link[] = [];
   readonly logs: LogEntry[] = [];
+  /** Where devices' syslog has to arrive for the NOC to see it (the NOC PC). null = see everything. */
+  syslogCollector: Ipv4 | null = null;
   readonly rng: Rng;
   time = 0;
 
@@ -116,6 +124,9 @@ export class Network {
     device.running = device.startup ? cloneConfig(device.startup) : factoryConfig(MODELS[device.model]);
     device.bootingUntil = this.time + BOOT_TIME_MS;
     device.arp.clear();
+    // A manually set clock doesn't survive a reload (there's no battery-backed calendar on these models).
+    delete device.clockOffset;
+    delete device.clockSetAt;
     this.commit();
   }
 
@@ -308,7 +319,13 @@ export class Network {
   // ---- logging ---------------------------------------------------------------
 
   log(deviceId: string, message: string): void {
-    this.logs.push({ seq: ++this.logSeq, device: deviceId, time: this.time, message });
+    const device = this.devices.get(deviceId);
+    const entry: LogEntry = { seq: ++this.logSeq, device: deviceId, time: this.time, message };
+    if (device) {
+      entry.stamp = logStamp(this, device, this.time);
+      if (this.syslogCollector !== null) entry.collected = syslogDelivered(this, device, message, this.syslogCollector);
+    }
+    this.logs.push(entry);
     if (this.logs.length > 5000) this.logs.splice(0, 1000);
   }
 

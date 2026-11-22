@@ -3,6 +3,7 @@
 import { aclConfigLines } from './acl';
 import { natConfigLines } from './nat';
 import { dhcpConfigLines } from './iosDhcp';
+import { deviceClock, loggingBottomLines, loggingTopLines, ntpLines, timestampLines } from './mgmt';
 import { cdpIfName, compareIfNames, shortIfName } from './ifnames';
 import { classfulPrefix, formatIp, prefixToMask } from './ip';
 import type { Network } from './network';
@@ -66,8 +67,10 @@ function fakeSecretHash(secret: string): string {
 export function renderConfig(device: Device, config: DeviceConfig): string[] {
   const lines: string[] = ['!'];
   lines.push(`version ${OS_VERSION[device.kind]?.split('(')[0] ?? '15.2'}`);
-  lines.push('no service timestamps log datetime msec', 'no service timestamps debug datetime msec');
+  lines.push(...timestampLines(device));
   lines.push('no service password-encryption', '!', `hostname ${config.hostname}`, '!');
+  const top = loggingTopLines(device);
+  if (top.length) lines.push(...top, '!');
   if (config.enableSecret) lines.push(`enable secret 5 ${fakeSecretHash(config.enableSecret)}`, '!');
   const userNames = Object.keys(config.users).sort();
   for (const name of userNames) {
@@ -140,10 +143,14 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
   if (config.staticRoutes.length || config.defaultGateway !== null) lines.push('!');
   const aclLines = aclConfigLines(config.acls ?? {});
   if (aclLines.length) lines.push(...aclLines, '!');
+  lines.push(...loggingBottomLines(device));
   if (config.bannerMotd !== null) lines.push(`banner motd ^C${config.bannerMotd}^C`, '!');
   lines.push('line con 0', ...renderLine(config.lines.con, false));
   const vty = renderLine(config.lines.vty, true);
-  lines.push('!', 'line vty 0 4', ...vty, 'line vty 5 15', ...vty, '!', 'end');
+  lines.push('!', 'line vty 0 4', ...vty, 'line vty 5 15', ...vty, '!');
+  const ntp = ntpLines(device);
+  if (ntp.length) lines.push(...ntp, '!');
+  lines.push('end');
   return lines;
 }
 
@@ -530,10 +537,10 @@ export function showVersion(net: Network, device: Device): string[] {
   return lines;
 }
 
-export function showClock(net: Network): string[] {
-  const d = net.wallClock();
+export function showClock(net: Network, device: Device): string[] {
+  const { date: d, authoritative } = deviceClock(net, device);
   const day = d.toLocaleString('en-US', { weekday: 'short', timeZone: 'UTC' });
   const month = d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
   const hms = [d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
-  return [`*${hms}.${String(d.getUTCMilliseconds()).padStart(3, '0')} UTC ${day} ${month} ${d.getUTCDate()} ${d.getUTCFullYear()}`];
+  return [`${authoritative ? '' : '*'}${hms}.${String(d.getUTCMilliseconds()).padStart(3, '0')} UTC ${day} ${month} ${d.getUTCDate()} ${d.getUTCFullYear()}`];
 }

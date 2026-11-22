@@ -18,6 +18,9 @@ import type { Device, StaticRoute } from '../sim/types';
 
 export const COMPANY = 'Cedar Ridge Accounting';
 export const NOC_PC_KEY = 'nocadmin@NOC-PC';
+export const NOC_PC_IP = '10.10.99.50';
+/** The NOC's monitoring system polls with SNMP v2c, read-only, using this community. */
+export const SNMP_COMMUNITY = 'cedar-mon';
 
 export const VLANS = [
   { id: 10, name: 'STAFF', subnet: '10.10.10.0/24', gateway: '10.10.10.1', purpose: 'Staff workstations' },
@@ -249,6 +252,7 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
         { seq: 5, remark: 'Guests: internet only' },
         { seq: 10, action: 'permit', proto: 'udp', src: any, dst: any, dstPort: { op: 'eq', ports: [67] } },
         { seq: 20, action: 'permit', proto: 'icmp', src: guests, dst: { addr: parseIp('10.10.40.1')!, wildcard: 0 } },
+        { seq: 25, action: 'permit', proto: 'icmp', src: guests, dst: { addr: parseIp('10.10.99.0')!, wildcard: 255 }, icmpType: 'echo-reply' },
         { seq: 30, action: 'deny', proto: 'ip', src: guests, dst: { addr: parseIp('10.0.0.0')!, wildcard: parseIp('0.255.255.255')! } },
         { seq: 40, action: 'permit', proto: 'ip', src: guests, dst: any },
       ],
@@ -337,6 +341,16 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   net.connect('noc', nic(noc), 'core1', 'FastEthernet0/10');
 
   for (const id of ['rtr1', 'core1', 'acc1', 'acc2']) inheritedSsh(net.device(id), net.rng.int(1000, 9999));
+  // Syslog to the NOC PC, SNMP for the NOC's poller, and time from the domain controller. CR-ACC2 is the
+  // replacement switch a contractor installed last spring from a bare template: none of this was ever set up on it.
+  const where: Record<string, string> = { rtr1: 'Server room rack 1', core1: 'Server room rack 1', acc1: '1st floor IDF closet' };
+  for (const id of ['rtr1', 'core1', 'acc1']) {
+    const d = net.device(id).running;
+    d.logging = { hosts: [parseIp(NOC_PC_IP)!], trap: 6, console: 7, monitor: 7, buffered: { size: 16384, level: 7 } };
+    d.snmp = { communities: { [SNMP_COMMUNITY]: { access: 'RO' } }, location: where[id], contact: 'Mike Delaney x4410', groups: {}, users: {} };
+    d.ntp = { servers: [{ ip: parseIp('10.10.20.10')!, prefer: false }], master: null };
+  }
+  net.syslogCollector = parseIp(NOC_PC_IP);
 
   // --- DHCP and DNS on CR-DC01; staff PCs get reserved addresses, relayed by CR-CORE1 -------
   const dc = net.device('dc01');

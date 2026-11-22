@@ -31,6 +31,8 @@ import { addAclGlobal, addAclInterface, addAclLine, addAclMode, addAclShows } fr
 import { caret, commit, INVALID, type Ctx } from './context';
 import { addNatGlobal, addNatInterface, addNatShows } from './natCommands';
 import { addDhcpDnsGlobal, addDhcpDnsShows, addDhcpPoolMode } from './dhcpDnsCommands';
+import { addMgmtGlobal, addMgmtShows } from './mgmtCommands';
+import { loggingOf, severityOf } from '../mgmt';
 import { iosNameServer, iosResolve } from '../dns';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
@@ -212,7 +214,7 @@ type Tree = CommandTree<Ctx>; // (same as context.Tree)
 
 function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   t.add('show version', H, (c) => c.out.push(...showVersion(c.net, c.dev)));
-  t.add('show clock', H, (c) => c.out.push(...showClock(c.net)));
+  t.add('show clock', H, (c) => c.out.push(...showClock(c.net, c.dev)));
   t.add('show ip interface brief', H, (c) => c.out.push(...showIpInterfaceBrief(c.net, c.dev)));
   t.add('show interfaces', H, (c) => {
     const ifs = Object.values(c.dev.running.interfaces).sort((a, b) => compareIfNames(a.name, b.name));
@@ -238,6 +240,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   addAclShows(t, privileged);
   if (kind === 'router') addNatShows(t, privileged);
   addDhcpDnsShows(t, privileged, true);
+  addMgmtShows(t, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -566,6 +569,7 @@ function buildConfig(kind: DeviceKind): Tree {
   addAclGlobal(t);
   if (kind === 'router') addNatGlobal(t);
   addDhcpDnsGlobal(t);
+  addMgmtGlobal(t);
   addConfigNav(t, HC);
   return t;
 }
@@ -1329,7 +1333,11 @@ export class CliSession {
     if (!logs.length) return [];
     this.lastLogSeq = logs[logs.length - 1].seq;
     if (this.booting || (this.isRemote && !this.monitor)) return [];
-    return logs.map((l) => `${this.net.formatLogTime(l.time)}: ${l.message}`);
+    // `logging console` / `logging monitor` set the most severe level still printed on this terminal.
+    const cfg = loggingOf(this.device);
+    const max = this.isRemote ? cfg.monitor : cfg.console;
+    if (max === null) return [];
+    return logs.filter((l) => severityOf(l.message) <= max).map((l) => (l.stamp === '' ? l.message : `${l.stamp ?? this.net.formatLogTime(l.time)}: ${l.message}`));
   }
 
   enterDhcpPool(name: string): void {

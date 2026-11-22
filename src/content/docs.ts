@@ -56,6 +56,7 @@ export function predecessorDocs(office: Office): Doc[] {
             'Five VLANs: STAFF (10), SERVERS (20), PRINTERS (30), GUEST (40, the conference room and visitors, internet only) and MGMT (99). Details are in Network overview.',
             'Every switch and the router run NetSmart gear. The command line is Cisco IOS syntax, so any Cisco guide on Google applies.',
             'The core switch (CR-CORE1) does the routing between VLANs. The router (CR-RTR1) only talks to the ISP.',
+            'Every switch and the router send syslog to the NOC PC, get their time from CR-DC01 and answer SNMP (community `cedar-mon`), so the Logs and Monitor tabs see everything.',
           ],
         },
         { h: 'Getting into the gear' },

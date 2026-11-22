@@ -1,5 +1,6 @@
 import type { Acl } from './acl';
 import type { IosDhcpPool } from './iosDhcp';
+import type { LoggingConfig, NtpConfig, SnmpConfig, Timestamps } from './mgmt';
 import type { NatConfig, NatEntry, NatStats } from './nat';
 import type { Ipv4 } from './ip';
 
@@ -97,6 +98,11 @@ export interface DeviceConfig {
   dhcpPools?: Record<string, IosDhcpPool>;
   dhcpExcluded?: [Ipv4, Ipv4][];
   serviceDhcp?: boolean;
+  /** Syslog, timestamps, SNMP and NTP (absent = IOS defaults). */
+  logging?: LoggingConfig;
+  timestamps?: Timestamps;
+  snmp?: SnmpConfig;
+  ntp?: NtpConfig;
   /** `ip name-server` and `ip host`. */
   nameServers?: Ipv4[];
   hosts?: Record<string, Ipv4>;
@@ -150,6 +156,9 @@ export interface Device {
   /** IOS DHCP bindings per pool (MAC -> address) and detected conflicts. */
   dhcpBindings?: Record<string, Record<string, Ipv4>>;
   dhcpConflicts?: { ip: Ipv4; at: number }[];
+  /** `clock set`: offset from true time, and when it was set (cleared by a reload). */
+  clockOffset?: number;
+  clockSetAt?: number;
   /** IOS resolver cache (`show hosts`, temp entries). */
   hostCache?: Record<string, { ip: Ipv4; at: number }>;
 }

@@ -1,4 +1,5 @@
 import type { Game, Sample } from '../game/game';
+import { NOC_PC_IP, SNMP_COMMUNITY } from '../content/office';
 import { compareIfNames, shortIfName } from '../sim/ifnames';
 import { formatIp } from '../sim/ip';
 import { deviceCpu, formatBps, interfaceRates } from '../sim/traffic';
@@ -71,6 +72,7 @@ export function MonitorView({ game, tick, selected, onSelect }: Props) {
   const samples = game.history.get(current.id) ?? [];
   const cpu = deviceCpu(net, current);
   const up = game.reachable(current);
+  const snmp = isHostKind(current.kind) || game.snmpOk(current);
   const booting = current.bootingUntil !== null;
   const uptimeMin = Math.floor((net.time - current.bootedAt) / 60000);
   const ifaces = Object.values(current.running.interfaces)
@@ -90,7 +92,7 @@ export function MonitorView({ game, tick, selected, onSelect }: Props) {
                 <button className={`mon-item ${d.id === current.id ? 'active' : ''}`} onClick={() => onSelect(d.id)}>
                   <span className={`dot ${d.bootingUntil !== null ? 'boot' : ok ? 'up' : 'down'}`} aria-hidden />
                   <span className="mon-name">{d.running.hostname}</span>
-                  <span className="mon-cpu">{net.isOnline(d) ? `${deviceCpu(net, d)}%` : '-'}</span>
+                  <span className="mon-cpu">{net.isOnline(d) && (isHostKind(d.kind) || game.snmpOk(d)) ? `${deviceCpu(net, d)}%` : '-'}</span>
                 </button>
               </li>
             );
@@ -109,6 +111,13 @@ export function MonitorView({ game, tick, selected, onSelect }: Props) {
           <span className={`pill pill-${booting ? 'boot' : up ? 'up' : 'down'}`}>{booting ? 'Booting' : up ? 'Up' : 'Down'}</span>
         </header>
 
+        {!snmp && !booting && (
+          <p className="doc-note">
+            No SNMP response from {current.running.hostname}. The poller on NOC-PC ({NOC_PC_IP}) asks with SNMP v2c, community <code>{SNMP_COMMUNITY}</code>, read-only.
+            Up/down above is from ping; CPU, uptime, traffic and interface data need SNMP.
+          </p>
+        )}
+        {snmp && (<>
         <div className="stats">
           <div className="stat">
             <span className="stat-label">Uptime</span>
@@ -182,6 +191,7 @@ export function MonitorView({ game, tick, selected, onSelect }: Props) {
             </tbody>
           </table>
         </div>
+              </>)}
       </section>
     </div>
   );

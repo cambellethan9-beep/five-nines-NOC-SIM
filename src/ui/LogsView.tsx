@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Game } from '../game/game';
+import { NOC_PC_IP } from '../content/office';
 
 const SEVERITIES = ['emergencies', 'alerts', 'critical', 'errors', 'warnings', 'notifications', 'informational', 'debugging'];
 
@@ -20,6 +21,8 @@ export function LogsView({ game, tick }: { game: Game; tick: number }) {
     const q = query.trim().toLowerCase();
     return net.logs
       .filter((l) => {
+        // Only what actually arrived at the syslog server on the NOC PC.
+        if (l.collected === false) return false;
         if (device !== 'all' && l.device !== device) return false;
         if (severityOf(l.message) > maxSev) return false;
         if (q && !l.message.toLowerCase().includes(q) && !net.device(l.device).running.hostname.toLowerCase().includes(q)) return false;
@@ -59,7 +62,9 @@ export function LogsView({ game, tick }: { game: Game; tick: number }) {
           Search
           <input id="log-search" type="search" placeholder="e.g. UPDOWN, Fa0/7, LOGIN" value={query} onChange={(e) => setQuery(e.target.value)} />
         </label>
-        <span className="logs-count">{rows.length} messages</span>
+        <span className="logs-count">
+          {rows.length} messages · syslog server on NOC-PC ({NOC_PC_IP}). Devices only show up here if they send their logs to it.
+        </span>
       </div>
       <div className="logs-table-wrap">
         <table className="logs-table">
@@ -76,7 +81,7 @@ export function LogsView({ game, tick }: { game: Game; tick: number }) {
               const sev = severityOf(l.message);
               return (
                 <tr key={l.seq} className={sev <= 3 ? 'log-row hot' : 'log-row'}>
-                  <td className="mono nowrap">{net.formatLogTime(l.time)}</td>
+                  <td className="mono nowrap">{l.stamp === undefined ? net.formatLogTime(l.time) : l.stamp || '(no timestamp)'}</td>
                   <td className="mono nowrap">{net.device(l.device).running.hostname}</td>
                   <td>
                     <span className={`sev sev-${sev}`}>
