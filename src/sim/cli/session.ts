@@ -27,6 +27,7 @@ import { RemoteClient, type ClientOptions } from '../remote';
 import { ping, traceroute } from '../routing';
 import type { Device, DeviceKind, InterfaceConfig } from '../types';
 import { isSwitchKind } from '../types';
+import { applyFilter, FILTER_HELP, splitPipe } from './filters';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
 
 export type Mode = 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line';
@@ -932,6 +933,18 @@ interface Trees {
   line: Tree;
 }
 
+/** `?` after a pipe: the output modifiers, then the regular expression. */
+function pipeHelp(after: string): string[] {
+  const words = after.trimStart().split(/\s+/);
+  const typing = !/\s$/.test(after);
+  if (after.trim() === '') return formatHelp(FILTER_HELP, false);
+  if (words.length === 1 && typing) {
+    const m = FILTER_HELP.filter((f) => f.label.startsWith(words[0].toLowerCase()));
+    return m.length ? formatHelp(m, true) : ['% Unrecognized command'];
+  }
+  return formatHelp([{ label: 'LINE', help: 'Regular Expression' }], false);
+}
+
 const treeCache = new Map<DeviceKind, Trees>();
 
 export function treesFor(kind: DeviceKind): Trees {
@@ -1089,6 +1102,7 @@ export class CliSession {
   private execute(line: string, result: CliResult, offset: number): void {
     const out = result.output;
     const ctx: Ctx = { s: this, net: this.net, dev: this.device, out, result, offset };
+    if ((this.mode === 'user' || this.mode === 'priv') && this.runPiped(line, ctx, 0, this.tree())) return;
     let parsed = parse(this.tree(), line);
     const subMode = this.mode !== 'user' && this.mode !== 'priv' && this.mode !== 'config';
     if (!parsed.ok && subMode) {
@@ -1130,6 +1144,9 @@ export class CliSession {
   help(line: string): string[] {
     if (this.client) return this.client.help(line);
     if (this.booting || this.pending || this.idle) return [];
+    const exec = this.mode === 'user' || this.mode === 'priv' || /^\s*do\s/.test(line);
+    const bar = line.indexOf('|');
+    if (exec && bar >= 0) return pipeHelp(line.slice(bar + 1));
     const trees = [this.tree()];
     const h = help(trees[0], line);
     if (!h || h.lines.length === 0) {
@@ -1308,7 +1325,38 @@ export class CliSession {
     this.wasBooting = true;
   }
 
+  /**
+   * `show ... | include X`: runs the show command and filters what it printed. Returns false when the
+   * line has no pipe (or the command part itself is invalid, so normal error handling can report it).
+   */
+  private runPiped(line: string, ctx: Ctx, offset: number, tree: Tree): boolean {
+    if (!line.includes('|')) return false;
+    const p = splitPipe(line);
+    if (!p.ok) {
+      if (p.error === 'invalid') caret(ctx, offset + p.caret);
+      else if (p.error === 'incomplete') ctx.out.push('% Incomplete command.', '');
+      else ctx.out.push('% Invalid regular expression', '');
+      return true;
+    }
+    const parsed = parse(tree, p.command);
+    if (!parsed.ok) return false;
+    const first = p.command.trim().split(/\s+/)[0].toLowerCase();
+    if (first.length < 2 || !'show'.startsWith(first)) {
+      // Only show commands take output modifiers.
+      caret(ctx, offset + line.indexOf('|'));
+      return true;
+    }
+    const start = ctx.out.length;
+    const mode = this.mode;
+    parsed.node.run!({ ...ctx, offset: ctx.offset + offset }, parsed.args);
+    this.mode = mode;
+    const produced = ctx.out.splice(start);
+    ctx.out.push(...applyFilter(produced, p.filter!));
+    return true;
+  }
+
   runExecFromConfig(command: string, ctx: Ctx, offset: number): void {
+    if (this.runPiped(command, ctx, offset, this.tree('priv'))) return;
     const saved = this.mode;
     const parsed = parse(this.tree('priv'), command);
     if (!parsed.ok) {
