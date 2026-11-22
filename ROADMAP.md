@@ -103,6 +103,8 @@ This keeps the game fast and deterministic and is accurate enough for CCNA-level
       harder ones back), Owen Price (Tier 2, 2 years; 35% credit, explains fixes, random facts, one hint per ticket in
       chat), Gloria Haines (NOC Manager, 10 years; 25% credit, solves anything, penalty for routine tickets). They really
       fix the network; upward-only escalation by rank (none left at NOC Manager)
+- [x] **Editable inherited docs:** Edit any reference doc or playbook in place (tables included), saved with the game,
+      with Revert to original. Notes also support tables, numbered steps and callouts
 - [x] **Desktop network settings:** IPv4 Properties panel (DHCP or static IP, mask, gateway, DNS) with Windows-style validation
 - [x] **Four more tickets:** APIPA after a blip (trivial), wrong static gateway (easy), stale DNS cache (easy),
       `ip helper-address` removed with APIPA spreading as PCs wake (moderate). 18 ticket types total
@@ -322,9 +324,11 @@ error messages, the faults it can cause, and ticket templates that use it.
 47c (inherited docs at new sites), 50a (predecessor runbooks wrong from day one), 52a (policy updates arrive as emails)
 
 ## Open questions
-- **Promotion benchmarks (owner asked to be reminded):** what it takes to move from Tier 1 to Tier 2 and beyond, e.g. a
-  number of shifts meeting both SLA targets, a minimum score, tickets resolved without escalation, no audit failures.
-  Owner's reference point: first shift about -600, second shift about +300 while meeting the 90% uptime target
+- **Promotion benchmarks (direction agreed, details being confirmed):** new ladder Tier 1 → Tier 2 → Tier 3 → NOC
+  Supervisor → NOC Manager; ranks above Manager need other prerequisites (facilities managed, etc.).
+  Owner's numbers: Tier 2 = 500 points a shift over 5 shifts, Tier 3 = 1,000 over 10, NOC Supervisor = 2,000 over 20,
+  NOC Manager = 50,000 over 20. Also agreed in principle: a **reliability streak**: consecutive shifts meeting the
+  uptime SLA pay more each shift (the 5th in a row is worth more than the 1st), growing faster at higher SLA targets
 - Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?

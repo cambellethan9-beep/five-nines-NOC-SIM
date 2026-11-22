@@ -2621,3 +2621,9 @@ kbd {
 .ip-field input:disabled {
   opacity: 0.5;
 }
+
+/* Editing an inherited doc: keep table rows on one line each. */
+#doc-body {
+  white-space: pre;
+  overflow-x: auto;
+}

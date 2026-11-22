@@ -1,5 +1,6 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import type { Block, Doc } from '../content/docs';
+import { blocksToText, textToBlocks } from '../content/doctext';
 import type { Game } from '../game/game';
 
 /** Renders `code` and **bold** inside a line of text. */
@@ -57,57 +58,7 @@ function BlockView({ block }: { block: Block }) {
   );
 }
 
-/** Turns a note's plain text into blocks: "# heading", "- bullet", ``` code fences, blank-line paragraphs. */
-export function noteBlocks(body: string): Block[] {
-  const blocks: Block[] = [];
-  const lines = body.split('\n');
-  let para: string[] = [];
-  let list: string[] = [];
-  let code: string[] | null = null;
-  const flush = () => {
-    if (para.length) blocks.push({ p: para.join(' ') });
-    if (list.length) blocks.push({ ul: list });
-    para = [];
-    list = [];
-  };
-  for (const line of lines) {
-    if (line.trim().startsWith('```')) {
-      if (code) {
-        blocks.push({ code: code.join('\n') });
-        code = null;
-      } else {
-        flush();
-        code = [];
-      }
-      continue;
-    }
-    if (code) {
-      code.push(line);
-      continue;
-    }
-    if (line.startsWith('# ')) {
-      flush();
-      blocks.push({ h: line.slice(2) });
-    } else if (/^\s*[-*] /.test(line)) {
-      if (para.length) {
-        blocks.push({ p: para.join(' ') });
-        para = [];
-      }
-      list.push(line.replace(/^\s*[-*] /, ''));
-    } else if (!line.trim()) {
-      flush();
-    } else {
-      if (list.length) {
-        blocks.push({ ul: list });
-        list = [];
-      }
-      para.push(line);
-    }
-  }
-  if (code) blocks.push({ code: (code as string[]).join('\n') });
-  flush();
-  return blocks;
-}
+const FORMAT_HINT = '# Heading\n- bullet points\n1. numbered steps\n> callout\n| table | columns |\nPlain paragraphs, `inline code`, **bold**\n```\ncode blocks\n```';
 
 export function DocsView({ game, tick, openNote }: { game: Game; tick: number; openNote?: string }) {
   void tick;
@@ -184,7 +135,7 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
             </ul>
           </div>
         ))}
-        <p className="docs-foot">Reference and playbooks were inherited from the previous network admin. Nobody has updated them since.</p>
+        <p className="docs-foot">Reference and playbooks were inherited from the previous network admin. Nobody has updated them since. You can: open one and press Edit to fix what's gone stale.</p>
       </nav>
 
       {note ? (
@@ -205,7 +156,7 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={16}
-                placeholder={'# Heading\n- bullet points\nPlain paragraphs, `inline code`, **bold**\n```\ncode blocks\n```'}
+                placeholder={FORMAT_HINT}
                 aria-label="Note text"
               />
               <div className="td-buttons">
@@ -225,7 +176,7 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
             </div>
           ) : (
             <>
-              {note.body.trim() ? noteBlocks(note.body).map((b, i) => <BlockView key={i} block={b} />) : <p className="docs-foot">This note is empty.</p>}
+              {note.body.trim() ? textToBlocks(note.body).map((b, i) => <BlockView key={i} block={b} />) : <p className="docs-foot">This note is empty.</p>}
               <div className="td-buttons note-actions">
                 <button className="secondary" onClick={startEdit}>
                   Edit
@@ -263,11 +214,68 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
               <h2>{doc.title}</h2>
               <p className="doc-meta">
                 {doc.author} · last edited {doc.updated}
+                {doc.editedAt !== undefined && <> · updated by you {game.net.formatLogTime(doc.editedAt).slice(-12, -7)}</>}
               </p>
             </header>
-            {doc.blocks.map((b, i) => (
-              <BlockView key={i} block={b} />
-            ))}
+            {editing ? (
+              <div className="note-editor">
+                <textarea id="doc-body" value={body} onChange={(e) => setBody(e.target.value)} rows={24} placeholder={FORMAT_HINT} aria-label="Document text" />
+                <p className="docs-foot">Tables are rows of cells between | bars. Add, remove or change rows and keep the bars lined up however you like.</p>
+                <div className="td-buttons">
+                  <button
+                    className="primary"
+                    onClick={() => {
+                      game.updateDoc(doc.id, body);
+                      setEditing(false);
+                    }}
+                  >
+                    Save changes
+                  </button>
+                  <button className="secondary" onClick={() => setEditing(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {doc.blocks.map((b, i) => (
+                  <BlockView key={i} block={b} />
+                ))}
+                <div className="td-buttons note-actions">
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      setBody(blocksToText(doc.blocks));
+                      setEditing(true);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  {doc.original &&
+                    (confirmDelete ? (
+                      <>
+                        <span className="bad-text">Throw away your changes and go back to {doc.author}'s version?</span>
+                        <button
+                          className="secondary"
+                          onClick={() => {
+                            game.revertDoc(doc.id);
+                            setConfirmDelete(false);
+                          }}
+                        >
+                          Yes, revert
+                        </button>
+                        <button className="secondary" onClick={() => setConfirmDelete(false)}>
+                          Keep mine
+                        </button>
+                      </>
+                    ) : (
+                      <button className="secondary" onClick={() => setConfirmDelete(true)}>
+                        Revert to original
+                      </button>
+                    ))}
+                </div>
+              </>
+            )}
           </article>
         )
       )}

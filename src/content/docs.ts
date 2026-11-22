@@ -19,6 +19,9 @@ export interface Doc {
   author: string;
   updated: string;
   blocks: Block[];
+  /** Set once you edit it: sim time of your last edit, and the predecessor's version for "Revert". */
+  editedAt?: number;
+  original?: Block[];
 }
 
 export const PREDECESSOR = 'Mike Delaney';

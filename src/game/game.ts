@@ -1,6 +1,7 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { textToBlocks } from '../content/doctext';
 import { predecessorDocs, type Doc } from '../content/docs';
 import { buildOffice, ZONES, type Office } from '../content/office';
 import { Ambient } from '../sim/ambient';
@@ -177,6 +178,23 @@ export class Game {
 
   deleteNote(id: string): void {
     this.notes = this.notes.filter((n) => n.id !== id);
+  }
+
+  /** Edits an inherited doc in place (keeping the predecessor's version so it can be reverted). */
+  updateDoc(id: string, text: string): void {
+    const doc = this.docs.find((d) => d.id === id);
+    if (!doc) return;
+    doc.original ??= doc.blocks;
+    doc.blocks = textToBlocks(text);
+    doc.editedAt = this.net.time;
+  }
+
+  revertDoc(id: string): void {
+    const doc = this.docs.find((d) => d.id === id);
+    if (!doc?.original) return;
+    doc.blocks = doc.original;
+    delete doc.original;
+    delete doc.editedAt;
   }
 
   // ---- saving ----
