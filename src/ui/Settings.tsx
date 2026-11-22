@@ -10,8 +10,11 @@ export const HOTKEYS: { key: string; what: string }[] = [
   { key: 'Alt + 1-8', what: 'Same as the number keys, even while typing' },
 ];
 
-export function SettingsDialog({ theme, onChange, onClose }: { theme: Theme; onChange: (t: Theme) => void; onClose: () => void }) {
+export function SettingsDialog({ theme, onChange, onClose, onDeleteDocs }: { theme: Theme; onChange: (t: Theme) => void; onClose: () => void; onDeleteDocs: () => void }) {
   const [t, setT] = useState(theme);
+  // Deleting your documentation takes three deliberate steps.
+  const [delStep, setDelStep] = useState(0);
+  const [typed, setTyped] = useState('');
   const set = (next: Theme) => {
     setT(next);
     applyTheme(next);
@@ -61,6 +64,50 @@ export function SettingsDialog({ theme, onChange, onClose }: { theme: Theme; onC
             ))}
           </tbody>
         </table>
+        <h3>Your documentation</h3>
+        <p className="modal-sub">Your notebook and your edits to the inherited docs carry over to every new game. They stay until you delete them here.</p>
+        {delStep === 0 && (
+          <button className="secondary small" onClick={() => setDelStep(1)}>
+            Delete my documentation...
+          </button>
+        )}
+        {delStep === 1 && (
+          <div className="danger-box">
+            <p>This deletes every note in your notebook and every edit you made to the inherited docs, in this game and all future ones.</p>
+            <div className="row-form">
+              <button className="secondary small" onClick={() => setDelStep(0)}>
+                Keep it
+              </button>
+              <button className="primary danger small" onClick={() => setDelStep(2)}>
+                I understand, continue
+              </button>
+            </div>
+          </div>
+        )}
+        {delStep === 2 && (
+          <div className="danger-box">
+            <p>
+              Are you sure? There is no backup and no undo. Type <kbd>DELETE</kbd> to confirm.
+            </p>
+            <div className="row-form">
+              <input value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="Type DELETE to confirm" className="mono" />
+              <button className="secondary small" onClick={() => { setDelStep(0); setTyped(''); }}>
+                Cancel
+              </button>
+              <button
+                className="primary danger small"
+                disabled={typed !== 'DELETE'}
+                onClick={() => {
+                  onDeleteDocs();
+                  setDelStep(0);
+                  setTyped('');
+                }}
+              >
+                Delete forever
+              </button>
+            </div>
+          </div>
+        )}
         <div className="td-buttons">
           <button className="primary" onClick={onClose} autoFocus>
             Done

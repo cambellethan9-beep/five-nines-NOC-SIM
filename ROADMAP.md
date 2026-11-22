@@ -263,6 +263,8 @@ error messages, the faults it can cause, and ticket templates that use it.
       physical layer: switch front panels (LEDs, physical port labels separate from `description`, unplug and
       move patch cables when standing at the switch), printer front panel (cable, network page, firmware update
       with reboot), print drivers on PCs. Tickets: printer cable, broken print driver, cable moved to the wrong port
+- [x] **Documentation carries over ("rebirth"):** your notebook and doc edits live outside the game save and come
+      with you into every new game; deleting them takes three confirmations in Settings
 - [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe

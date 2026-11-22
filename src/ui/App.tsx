@@ -3,7 +3,7 @@ import { COMPANY } from '../content/office';
 import { Game, WALK_MS } from '../game/game';
 import { ALL } from '../game/chat';
 import { SLA } from '../game/scoring';
-import { clearSave, loadGame, saveGame } from '../game/storage';
+import { clearLibrary, clearSave, loadGame, newGameWithLibrary, saveGame, saveLibrary } from '../game/storage';
 import { ChatView } from './ChatView';
 import { DeskView } from './DeskView';
 import { DocsView } from './DocsView';
@@ -45,7 +45,7 @@ const AUTOSAVE_MS = 15_000;
 
 /** Owns the game object: loads the saved game on start and swaps in a fresh one for "New game". */
 export function App() {
-  const [game, setGame] = useState<Game>(() => loadGame() ?? new Game());
+  const [game, setGame] = useState<Game>(() => loadGame() ?? newGameWithLibrary());
   const [gen, setGen] = useState(0);
   // Open the page with ?debug to poke at the game from the browser console.
   if (new URLSearchParams(window.location.search).has('debug')) (window as unknown as { game: Game }).game = game;
@@ -54,8 +54,10 @@ export function App() {
       key={gen}
       game={game}
       onNewGame={() => {
+        // Keep the documentation from the game being thrown away, right up to this moment.
+        saveLibrary(game);
         clearSave();
-        const fresh = new Game();
+        const fresh = newGameWithLibrary();
         saveGame(fresh);
         setGame(fresh);
         setGen((g) => g + 1);
@@ -371,7 +373,7 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
         <div className="modal-backdrop">
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="newgame-title">
             <h2 id="newgame-title">Start a new game?</h2>
-            <p className="modal-sub">This throws away your current network, tickets, chat and notebook. It can't be undone.</p>
+            <p className="modal-sub">This throws away your current network, tickets, chat and rank. It can't be undone. Your notebook and your edits to the inherited docs come with you.</p>
             <div className="td-buttons">
               <button className="secondary" onClick={() => setConfirmNew(false)} autoFocus>
                 Keep playing
@@ -407,7 +409,20 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
         />
       )}
       {achOpen && <AchievementsDialog game={game} onClose={() => setAchOpen(false)} />}
-      {settingsOpen && <SettingsDialog theme={theme} onChange={setTheme} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <SettingsDialog
+          theme={theme}
+          onChange={setTheme}
+          onClose={() => setSettingsOpen(false)}
+          onDeleteDocs={() => {
+            clearLibrary();
+            game.notes = [];
+            for (const d of game.docs) if (d.original) game.revertDoc(d.id);
+            saveGame(game);
+            say('Your notebook and doc edits were deleted.');
+          }}
+        />
+      )}
 
       {toast && (
         <div className="toast" role="status">

@@ -103,7 +103,7 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
       <nav className="docs-list" aria-label="Documents">
         <div>
           <div className="nb-head">
-            <h2 className="side-title">Your notebook</h2>
+            <h2 className="side-title" title="Your notebook and doc edits carry over to every new game (delete them in Settings)">Your notebook · kept across games</h2>
             <button className="link-btn" onClick={newNote}>
               + New note
             </button>

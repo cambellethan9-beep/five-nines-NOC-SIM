@@ -3124,3 +3124,17 @@ kbd {
   margin-top: 12px;
   font-size: 13px;
 }
+
+.danger-box {
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.danger-box input {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 6px;
+}

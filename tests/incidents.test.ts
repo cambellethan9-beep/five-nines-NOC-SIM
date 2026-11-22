@@ -76,3 +76,23 @@ describe('achievements', () => {
     expect(g.achievements.has('saw-it-coming')).toBe(true);
   });
 });
+
+describe('documentation carries over to a new game', () => {
+  it('notes and doc edits move into a fresh game', async () => {
+    const { applyLibrary, libraryOf } = await import('../src/game/storage');
+    const g = new Game('lib');
+    const n = g.addNote();
+    g.updateNote(n.id, 'VLAN cheat sheet', '10 staff, 20 servers');
+    const doc = g.docs[0];
+    g.updateDoc(doc.id, '# Mine\n- my own notes');
+    const lib = JSON.parse(JSON.stringify(libraryOf(g)));
+    const fresh = new Game('lib2');
+    applyLibrary(fresh, lib);
+    expect(fresh.notes.find((x) => x.title === 'VLAN cheat sheet')?.body).toBe('10 staff, 20 servers');
+    const d2 = fresh.docs.find((d) => d.id === doc.id)!;
+    expect(JSON.stringify(d2.blocks)).toContain('my own notes');
+    // The predecessor's version is still there to revert to.
+    fresh.revertDoc(doc.id);
+    expect(JSON.stringify(fresh.docs.find((d) => d.id === doc.id)!.blocks)).not.toContain('my own notes');
+  });
+});
