@@ -109,7 +109,7 @@ This keeps the game fast and deterministic and is accurate enough for CCNA-level
       Ranks above Manager will use other prerequisites (facilities managed, etc.)
 - [x] **Reliability streak:** each shift in a row that reaches the rank's points bar pays 50 × streak (counts up to 10)
       × the nines multiplier of the rank's uptime target (1 nine ×1.1 … 5 nines ×1.5). Counts toward promotion.
-      A shift under the bar halves the streak
+      A shift under the bar resets the streak to 0, the same as the promotion count
 - [x] **Points are the core, uptime is informational:** some downtime is unavoidable. Downtime still drains points while
       it lasts, but missing the uptime target adds no extra penalty; the shift bonus/penalty rides on tickets in SLA
 - [ ] **Tier 3 unlocks network changes:** from Network Engineer on you can change the topology itself (add, move and
@@ -284,8 +284,11 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [ ] **Runbook triggers:** match keywords (and later alert types) to runbooks, so a ticket like "printer offline" is
       picked up and worked automatically by an employee assigned to that runbook. Bad matches and stale runbooks make
       things worse, so they need maintaining
-- [ ] **Automation over manual work:** at senior ranks, fixing routine tickets yourself costs a few points (see Open
-      questions); the intended play is delegation and automation so you focus on the hard tickets
+- [x] **Menial work costs seniors points (first version built):** at NOC Supervisor and NOC Manager, resolving a
+      trivial or easy ticket yourself subtracts 10% / 20% of its base points on top of what it earns. Jordan and Owen
+      now work for you at those ranks: **Assign** a ticket down to them for full base points and no penalty
+- [ ] **Automation over manual work:** the same penalty applies once hired techs and runbook triggers exist; the
+      intended play is delegation and automation so you focus on the hard tickets
 - [ ] **Mentoring and promotion (#22):** promote techs; unhappy or underpaid techs can quit
 - [ ] Ticket volume scales so time management matters (#1)
 - [ ] Wave B configuration features
@@ -363,10 +366,6 @@ error messages, the faults it can cause, and ticket templates that use it.
 47c (inherited docs at new sites), 50a (predecessor runbooks wrong from day one), 52a (policy updates arrive as emails)
 
 ## Open questions
-- **Menial work at high rank (owner wants it; details to approve):** at senior ranks, fixing routine tickets yourself
-  costs a few points, to push delegation and automation (hired techs, runbooks, scripts) so you spend your time on the
-  hard tickets. Needs the Phase 4 team first so there is someone to delegate to
-- Should a shift under the points bar halve the reliability streak (built that way) or reset it to 0?
 - Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?

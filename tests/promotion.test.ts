@@ -42,7 +42,7 @@ describe('reliability streak', () => {
     expect(streakBonus(5, 0.9)).toBe(275);
     expect(streakBonus(5, 0.99)).toBe(300);
     expect(streakBonus(15, 0.99999)).toBe(750); // capped at 10 shifts
-    expect(streakAfterMiss(7)).toBe(3);
+    expect(streakAfterMiss(7)).toBe(0);
   });
 
   it('follows the points bar, not uptime, and is saved', () => {
@@ -52,7 +52,8 @@ describe('reliability streak', () => {
     expect(r.streak).toBe(1);
     expect(r.streakBonus).toBe(55);
     expect(playShift(game, 5000).streakBonus).toBe(110);
-    expect(playShift(game, -5000)).toMatchObject({ streak: 1, streakBonus: 0 });
+    expect(playShift(game, -5000)).toMatchObject({ streak: 0, streakBonus: 0 });
+    expect(playShift(game, 5000).streakBonus).toBe(55); // starts over
     const restored = new Game(game.seed, JSON.parse(JSON.stringify(game.toSave())));
     expect(restored.queue.streak).toBe(game.queue.streak);
   });
@@ -80,5 +81,37 @@ describe('promotion', () => {
     expect(miss.promotion).toMatchObject({ qualified: false, done: 0 });
     expect(playShift(game, 5000).promotion!.done).toBe(1);
     expect(game.queue.rankIndex).toBe(0);
+  });
+});
+
+describe('senior ranks delegate routine work', () => {
+  function seniorGame(rank: number) {
+    const game = new Game('menial');
+    game.queue.rankIndex = rank;
+    const t = game.queue.tickets[0]; // the tutorial: a trivial port shutdown
+    return { game, t };
+  }
+
+  it('a Supervisor fixing a trivial ticket by hand loses a little; a Tier 2 does not', () => {
+    for (const [rank, expected] of [[1, 0], [3, -4], [4, -8]] as const) {
+      const { game, t } = seniorGame(rank);
+      t.draft.fix();
+      const r = game.queue.resolve(t.id, 'fixed');
+      const line = r.lines.find((l) => l.label.startsWith('Routine ticket done by hand'));
+      expect(line?.points ?? 0).toBe(expected);
+    }
+  });
+
+  it('assigning it down to Jordan pays full base points and no penalty', () => {
+    const { game, t } = seniorGame(4);
+    expect(game.queue.escalate(t.id, 'jordan')).toMatch(/assigned to Jordan/);
+    game.tick(16 * MIN);
+    const ev = t.score;
+    if (t.status === 'senior-resolved') {
+      expect(ev.find((e) => e.label === 'Delegated to Jordan')?.points).toBe(40);
+      expect(ev.some((e) => e.label.startsWith('Routine'))).toBe(false);
+    } else {
+      expect(t.status).toBe('in-progress'); // Jordan handed it back (5% chance on a trivial ticket)
+    }
   });
 });

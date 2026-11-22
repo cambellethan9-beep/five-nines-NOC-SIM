@@ -69,9 +69,22 @@ export function coworker(id: string): Coworker {
   return c;
 }
 
-/** You escalate upward. A fellow Tier 1 with more time in the job is fair game while you're both Tier 1. */
+/** From NOC Supervisor up, Jordan and Owen work for you: you can hand tickets down to them. */
+export const DELEGATE_FROM_RANK = 3;
+
+export function isDelegation(c: Coworker, playerRank: number): boolean {
+  return playerRank >= DELEGATE_FROM_RANK && c.rankIndex < playerRank;
+}
+
+/** You escalate upward (a fellow Tier 1 with more time in the job is fair game while you're both Tier 1),
+ *  or, as a Supervisor or Manager, delegate down to your team. */
 export function canEscalateTo(c: Coworker, playerRank: number): boolean {
-  return c.rankIndex > playerRank || (c.id === 'jordan' && playerRank === 0);
+  return c.rankIndex > playerRank || (c.id === 'jordan' && playerRank === 0) || isDelegation(c, playerRank);
+}
+
+/** Share of base points you keep. Delegating is the job at senior ranks, so it pays in full. */
+export function creditFor(c: Coworker, playerRank: number): number {
+  return isDelegation(c, playerRank) ? 1 : c.credit;
 }
 
 /** Gloria doesn't want routine tickets. */

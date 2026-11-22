@@ -30,7 +30,9 @@ of the CCNA core list in the order written there.
   score ≥ 500/1,000/2,000/5,000 for 5/10/20/20 shifts in a row (one miss resets the count to 0). Uptime targets 1-5 nines.
 - **Points are the core; uptime is informational.** Reliability streak: each shift in a row at or above the rank's
   points bar pays 50 × streak (max 10) × (1 + 0.1 × nines of the uptime target); counts toward promotion; a shift under
-  the bar halves it. Shift bonus/penalty depends on tickets in SLA only (downtime still drains points live).
+  the bar resets it to 0. Shift bonus/penalty depends on tickets in SLA only (downtime still drains points live).
+- **Menial work:** at NOC Supervisor / Manager, resolving a trivial or easy ticket yourself costs 10% / 20% of base;
+  Jordan and Owen can be assigned tickets at those ranks (delegation, full base points, no penalty).
 - **Tickets in play at once:** 1 / 2 / 3 / 4 / unlimited by rank; 1.5-4 min breather.
 - **Healthy-network income:** +1 point every 2 game seconds while nothing is broken and no incident is open.
 - **Downtime drain:** 2 points per affected user per service per minute (scale is an open question).
@@ -43,7 +45,7 @@ of the CCNA core list in the order written there.
   Owen gives one `draft.hint` per ticket in chat. Every ticket template needs `explain` and `hint`.
 
 ## Open questions (see the end of ROADMAP.md)
-Menial-work penalty at high rank (needs the Phase 4 team); halve vs reset the streak on a miss. Also: downtime drain scale; whether the
+Downtime drain scale; whether the
 10× speed button ships (it inflates healthy-network income); release timing.
 
 ## Code layout

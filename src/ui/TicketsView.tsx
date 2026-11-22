@@ -3,7 +3,7 @@ import type { Game } from '../game/game';
 import type { Ticket } from '../game/queue';
 import { SLA, total, type Priority, type ScoreLine } from '../game/scoring';
 import { formatIp } from '../sim/ip';
-import { coworker, wastesManagersTime } from '../game/coworkers';
+import { coworker, creditFor, DELEGATE_FROM_RANK, isDelegation, wastesManagersTime } from '../game/coworkers';
 import { BASE_POINTS } from '../game/scoring';
 
 interface Props {
@@ -276,9 +276,9 @@ function EscalatePanel({ game, ticket: t, onMessage }: { game: Game; ticket: Tic
     const c = coworker(t.escalation.to);
     return (
       <section className="td-escalate" aria-label="Escalation">
-        <h3>Escalated</h3>
+        <h3>{t.escalation.delegated ? 'Assigned' : 'Escalated'}</h3>
         <p className="td-fine">
-          {c.name} ({c.title}) is working on it. You can still fix it yourself first for full points.
+          {c.name} ({c.title}) is working on it. You can still fix it yourself first.
         </p>
       </section>
     );
@@ -286,14 +286,16 @@ function EscalatePanel({ game, ticket: t, onMessage }: { game: Game; ticket: Tic
   if (t.seniorAt !== null) return null;
   return (
     <section className="td-escalate" aria-label="Escalate">
-      <h3>Escalate</h3>
+      <h3>{q.rankIndex >= DELEGATE_FROM_RANK ? 'Escalate or assign' : 'Escalate'}</h3>
       {targets.length === 0 ? (
         <p className="td-fine">Nobody above you to escalate to. This one's yours.</p>
       ) : (
         <div className="esc-list">
           {targets.map((c) => {
             const blocked = q.escalationBlocked(t, c.id);
-            const credit = Math.round(BASE_POINTS[t.difficulty] * c.credit);
+            const share = creditFor(c, q.rankIndex);
+            const down = isDelegation(c, q.rankIndex);
+            const credit = Math.round(BASE_POINTS[t.difficulty] * share);
             const routine = wastesManagersTime(c, t.difficulty, t.truePriority);
             return (
               <div key={c.id} className="esc-row">
@@ -306,7 +308,7 @@ function EscalatePanel({ game, ticket: t, onMessage }: { game: Game; ticket: Tic
                 </div>
                 <div className="esc-side">
                   <span className="td-fine">
-                    ~{Math.round(c.minMs / 60000)}-{Math.round(c.maxMs / 60000)} min · you keep {Math.round(c.credit * 100)}% (~{credit} pts)
+                    ~{Math.round(c.minMs / 60000)}-{Math.round(c.maxMs / 60000)} min · you keep {Math.round(share * 100)}% (~{credit} pts)
                   </span>
                   <button
                     className="secondary small"
@@ -314,7 +316,7 @@ function EscalatePanel({ game, ticket: t, onMessage }: { game: Game; ticket: Tic
                     title={blocked ?? (routine ? 'She will not love getting a routine ticket.' : '')}
                     onClick={() => onMessage(q.escalate(t.id, c.id))}
                   >
-                    {blocked && blocked.includes('busy') ? 'Busy' : `Escalate to ${c.name.split(' ')[0]}`}
+                    {blocked && blocked.includes('busy') ? 'Busy' : `${down ? 'Assign' : 'Escalate'} to ${c.name.split(' ')[0]}`}
                   </button>
                 </div>
               </div>

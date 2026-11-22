@@ -6,6 +6,7 @@ import type { Network } from '../sim/network';
 import type { Rng } from '../sim/rng';
 import {
   falseResolvePenalty,
+  isMenial,
   RANKS,
   resolveScore,
   RULES,
@@ -17,7 +18,7 @@ import {
   type ScoreLine,
 } from './scoring';
 import { BASE_POINTS } from './scoring';
-import { canEscalateTo, coworker, COWORKERS, wastesManagersTime, type CoworkerId } from './coworkers';
+import { canEscalateTo, coworker, COWORKERS, isDelegation, wastesManagersTime, type CoworkerId } from './coworkers';
 import { portShutdown, rebuildDraft, TEMPLATES, type Params, type TicketDraft, type TicketTemplate } from './templates';
 
 export type TicketStatus = 'new' | 'in-progress' | 'resolved' | 'escalated' | 'reopened' | 'senior-resolved';
@@ -37,6 +38,8 @@ export interface Escalation {
   doneAt: number;
   /** Decided when you escalate, so saves replay exactly. */
   success: boolean;
+  /** Handed down to your own team (NOC Supervisor and up) rather than escalated. */
+  delegated?: boolean;
 }
 
 export interface Ticket {
@@ -381,7 +384,7 @@ export class TicketQueue {
     if (!this.isOpen(t)) return 'This ticket is closed.';
     if (t.escalation) return `Already with ${coworker(t.escalation.to).name.split(' ')[0]}.`;
     if (t.seniorAt !== null) return 'Owen is already taking this over.';
-    if (!canEscalateTo(c, this.rankIndex)) return `${c.name.split(' ')[0]} doesn't outrank you.`;
+    if (!canEscalateTo(c, this.rankIndex)) return `${c.name.split(' ')[0]} doesn't outrank you, and doesn't work for you.`;
     if (this.coworkerBusy(id)) return `${c.name.split(' ')[0]} is busy with another of your tickets.`;
     return null;
   }
@@ -405,9 +408,11 @@ export class TicketQueue {
       success: this.rng.chance(c.success[t.difficulty]),
     };
     t.status = 'escalated';
-    t.activity.push({ t: now, who: 'you', text: `Escalated to ${c.name} (${c.title}).` });
+    const down = isDelegation(c, this.rankIndex);
+    t.escalation.delegated = down;
+    t.activity.push({ t: now, who: 'you', text: `${down ? 'Assigned' : 'Escalated'} to ${c.name} (${c.title}).` });
     t.activity.push({ t: now, who: 'senior', name: c.name, text: c.id === 'gloria' ? "Got it. I'll take a look." : "On it. I'll let you know." });
-    return `${t.id} escalated to ${c.name}.`;
+    return `${t.id} ${down ? 'assigned' : 'escalated'} to ${c.name}.`;
   }
 
   private finishEscalation(t: Ticket): void {
@@ -429,7 +434,12 @@ export class TicketQueue {
     t.resolvedBy = c.id;
     t.activity.push({ t: now, who: 'senior', name: c.name, text: `Fixed. ${t.draft.explain}` });
     const base = BASE_POINTS[t.difficulty];
-    const lines: ScoreLine[] = [{ label: `Escalated to ${first} (${Math.round(c.credit * 100)}% credit)`, points: Math.round(base * c.credit) }];
+    const credit = esc.delegated ? 1 : c.credit;
+    const lines: ScoreLine[] = [
+      esc.delegated
+        ? { label: `Delegated to ${first}`, points: Math.round(base * credit) }
+        : { label: `Escalated to ${first} (${Math.round(credit * 100)}% credit)`, points: Math.round(base * credit) },
+    ];
     if (t.breached) lines.push({ label: 'Resolve SLA breached', points: -Math.round(base * RULES.breachPenalty) });
     if (t.respondMissed) lines.push({ label: 'Response SLA missed', points: -Math.round(base * RULES.missedResponsePenalty) });
     if (wastesManagersTime(c, t.difficulty, t.truePriority)) {
@@ -438,7 +448,7 @@ export class TicketQueue {
     this.award(t, lines);
     let msg = `${t.id} is fixed. ${t.draft.explain}`;
     if (wastesManagersTime(c, t.difficulty, t.truePriority)) msg += ' Next time, try Owen first. I need to stay free for the big ones.';
-    else if (c.id === 'owen') msg += ' Write that one down, you\'ll see it again.';
+    else if (c.id === 'owen' && !esc.delegated) msg += ' Write that one down, you\'ll see it again.';
     this.onCoworkerMessage?.(c.id, msg);
   }
 
@@ -495,6 +505,11 @@ export class TicketQueue {
         t.escalation = null;
       }
       let lines = resolveScore(this.scoreInput(t));
+      const menial = this.rank.menialPenaltyPct;
+      if (menial > 0 && isMenial(t.difficulty)) {
+        // At senior ranks, routine tickets should go to your team, not take up your time.
+        lines.push({ label: `Routine ticket done by hand (${this.rank.name})`, points: -Math.round(BASE_POINTS[t.difficulty] * menial) });
+      }
       if (t.falseResolves > 0) {
         // Coming back to it later still pays, just not as much as getting it right first.
         const share = RULES.revisitShare;

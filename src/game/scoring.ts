@@ -31,6 +31,8 @@ export interface Rank {
   maxOpenTickets: number;
   /** Share of lifetime points lost on a false resolve. 0 means a senior takes over instead. */
   falseResolvePct: number;
+  /** Share of base points subtracted when you resolve a trivial or easy ticket yourself instead of delegating. */
+  menialPenaltyPct: number;
   /** How likely each difficulty is when a new ticket is generated. */
   difficultyWeights: Record<Difficulty, number>;
   /** To be promoted out of this rank: score at least `pointsPerShift` in `shifts` shifts in a row. */
@@ -44,6 +46,7 @@ export const RANKS: Rank[] = [
     slaTarget: 0.8,
     maxOpenTickets: 1,
     falseResolvePct: 0,
+    menialPenaltyPct: 0,
     difficultyWeights: { trivial: 35, easy: 35, moderate: 25, hard: 4, expert: 1 },
     promotion: { pointsPerShift: 500, shifts: 5 },
   },
@@ -53,6 +56,7 @@ export const RANKS: Rank[] = [
     slaTarget: 0.9,
     maxOpenTickets: 2,
     falseResolvePct: 0.01,
+    menialPenaltyPct: 0,
     difficultyWeights: { trivial: 20, easy: 30, moderate: 35, hard: 11, expert: 4 },
     promotion: { pointsPerShift: 1000, shifts: 10 },
   },
@@ -62,6 +66,7 @@ export const RANKS: Rank[] = [
     slaTarget: 0.95,
     maxOpenTickets: 3,
     falseResolvePct: 0.02,
+    menialPenaltyPct: 0,
     difficultyWeights: { trivial: 10, easy: 20, moderate: 35, hard: 25, expert: 10 },
     promotion: { pointsPerShift: 2000, shifts: 20 },
   },
@@ -71,6 +76,7 @@ export const RANKS: Rank[] = [
     slaTarget: 0.97,
     maxOpenTickets: 4,
     falseResolvePct: 0.025,
+    menialPenaltyPct: 0.1,
     difficultyWeights: { trivial: 7, easy: 17, moderate: 33, hard: 28, expert: 15 },
     promotion: { pointsPerShift: 5000, shifts: 20 },
   },
@@ -82,6 +88,7 @@ export const RANKS: Rank[] = [
     // No limit: by now you're delegating to the techs you've hired.
     maxOpenTickets: Infinity,
     falseResolvePct: 0.03,
+    menialPenaltyPct: 0.2,
     difficultyWeights: { trivial: 5, easy: 15, moderate: 30, hard: 30, expert: 20 },
   },
 ];
@@ -139,9 +146,14 @@ export function streakBonus(streak: number, uptimeTarget: number): number {
   return Math.round(RULES.streakPointsPerShift * Math.min(streak, RULES.streakCap) * ninesMultiplier(uptimeTarget));
 }
 
-/** Missing the points bar halves the streak instead of wiping it. */
-export function streakAfterMiss(streak: number): number {
-  return Math.floor(streak / 2);
+/** A shift under the points bar wipes the streak: it has to be rebuilt from 0. */
+export function streakAfterMiss(_streak: number): number {
+  return 0;
+}
+
+/** Routine work a senior shouldn't be doing by hand. */
+export function isMenial(difficulty: Difficulty): boolean {
+  return difficulty === 'trivial' || difficulty === 'easy';
 }
 
 /** Speed multiplier for resolving after `elapsed` ms against a deadline of `target` ms. */
