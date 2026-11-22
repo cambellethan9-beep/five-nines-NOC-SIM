@@ -1,6 +1,7 @@
 // Background life in the office: PCs going to sleep and waking up (real link flaps on the
 // access switches) and the routine log noise every real network has.
 
+import { recordLoginFailure } from './hardening';
 import { formatIp } from './ip';
 import type { Network } from './network';
 
@@ -90,10 +91,7 @@ export class Ambient {
       net.log(target.id, `%SNMP-3-AUTHFAIL: Authentication failure for SNMP req from host ${src}`);
     } else {
       const user = net.rng.pick(['admin', 'root', 'cisco', 'tbrennan']);
-      net.log(
-        target.id,
-        `%SEC_LOGIN-4-LOGIN_FAILED: Login failed [user: ${user}] [Source: ${src}] [localport: 22] [Reason: Login Authentication Failed] at ${loginTime(net)}`,
-      );
+      recordLoginFailure(net, target, user, src, 22);
     }
   }
 }

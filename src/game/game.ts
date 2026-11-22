@@ -1,6 +1,8 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { updateArchives } from '../sim/backup';
+import { updateQuietMode } from '../sim/hardening';
 import { textToBlocks } from '../content/doctext';
 import { predecessorDocs, type Doc } from '../content/docs';
 import { buildOffice, NOC_PC_IP, SNMP_COMMUNITY, ZONES, type Office } from '../content/office';
@@ -302,6 +304,8 @@ export class Game {
       this.ambient.update();
       this.dhcp.update(this.net);
       this.net.recoverErrDisabled();
+      updateQuietMode(this.net);
+      updateArchives(this.net);
       if (this.started) {
         this.queue.update();
         this.checkServices(step);

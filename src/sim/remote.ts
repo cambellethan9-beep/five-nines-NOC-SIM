@@ -7,6 +7,7 @@ import { CliSession, type CliResult } from './cli/session';
 import { formatIp, type Ipv4 } from './ip';
 import type { Network } from './network';
 import { loginTime } from './ambient';
+import { inQuietMode, quietModeAllows, recordLoginFailure } from './hardening';
 import { canReach, ownsAddress, sourceAddressFor } from './routing';
 import type { Device } from './types';
 
@@ -113,7 +114,8 @@ export class RemoteClient {
       result.delayed = { ms: 5000, output: [msg, ''] };
       return result;
     }
-    if (!portOpen(target, proto, port) || !this.accessClassPermits(target)) {
+    const quiet = inQuietMode(this.net, target) && !quietModeAllows(target, sourceAddressFor(this.net, this.net.device(this.clientId), this.opts.ip), port);
+    if (!portOpen(target, proto, port) || !this.accessClassPermits(target) || quiet) {
       out.push(
         this.win
           ? proto === 'ssh'
@@ -169,6 +171,8 @@ export class RemoteClient {
   private authenticateSsh(out: string[]): void {
     const target = this.target!;
     const cfg = target.running;
+    // The SSH server sends the login banner before authentication.
+    if (cfg.bannerLogin) out.push(cfg.bannerLogin);
     if (this.user === null) this.user = '';
     // Public key first: a trusted client key logs straight in.
     const key = this.opts.clientKey;
@@ -187,6 +191,7 @@ export class RemoteClient {
     const cfg = this.target!.running;
     const vty = cfg.lines.vty;
     if (cfg.bannerMotd) out.push('', cfg.bannerMotd);
+    if (cfg.bannerLogin && vty.login !== 'none') out.push('', cfg.bannerLogin);
     if (vty.login === 'none') {
       this.connect(1, out);
       return;
@@ -232,12 +237,8 @@ export class RemoteClient {
     const target = this.target!;
     const src = sourceAddressFor(this.net, this.net.device(this.clientId), this.opts.ip);
     const who = `[user: ${this.user ?? ''}] [Source: ${src === null ? 'unknown' : formatIp(src)}] [localport: ${this.opts.port}]`;
-    this.net.log(
-      target.id,
-      success
-        ? `%SEC_LOGIN-5-LOGIN_SUCCESS: Login Success ${who} at ${loginTime(this.net)}`
-        : `%SEC_LOGIN-4-LOGIN_FAILED: Login failed ${who} [Reason: Login Authentication Failed] at ${loginTime(this.net)}`,
-    );
+    if (success) this.net.log(target.id, `%SEC_LOGIN-5-LOGIN_SUCCESS: Login Success ${who} at ${loginTime(this.net)}`);
+    else recordLoginFailure(this.net, target, this.user ?? '', src === null ? 'unknown' : formatIp(src), this.opts.port);
   }
 
   private connect(privilege: number, out: string[]): void {
@@ -245,6 +246,7 @@ export class RemoteClient {
     this.loginLog(true);
     if (this.opts.proto === 'ssh' && target.running.bannerMotd) out.push('', target.running.bannerMotd, '');
     else out.push('');
+    if (target.running.bannerExec) out.push(target.running.bannerExec, '');
     this.session = new CliSession(this.net, target.id, { remote: { user: this.user ?? '', privilege } });
     this.state = 'connected';
   }
@@ -313,6 +315,12 @@ export class RemoteClient {
         }
         this.attempts++;
         this.loginLog(false);
+        if (inQuietMode(this.net, this.target!)) {
+          // Quiet mode drops the session that tripped it.
+          out.push(this.win && this.opts.proto === 'ssh' ? `Connection to ${this.ipText} closed by remote host.` : '% Connection closed by remote host', '');
+          this.state = 'closed';
+          return result;
+        }
         const ssh = this.opts.proto === 'ssh';
         if (this.attempts >= 3) {
           if (this.win && ssh) out.push(`${this.user}@${this.ipText}: Permission denied (password).`, '');
@@ -358,6 +366,8 @@ export class RemoteClient {
       this.close(out, true);
       return out;
     }
-    return this.session!.pollLogs();
+    const lines = this.session!.pollLogs();
+    if (this.session!.closed) this.close(lines, true);
+    return lines;
   }
 }

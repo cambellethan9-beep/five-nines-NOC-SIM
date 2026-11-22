@@ -418,11 +418,29 @@ export function ping(net: Network, fromDevice: string, dest: Ipv4, count = 5): P
     if (!back || !back.delivered) marks = '.'.repeat(count);
     else if (forward.arpMiss || back.arpMiss) marks = '.' + '!'.repeat(count - 1);
     else marks = '!'.repeat(count);
+    // A duplex mismatch on the way loses frames to collisions and CRC errors.
+    if (lossyPath(net, fromDevice, destDevice, forward.hops.map((h) => h.device))) marks = [...marks].map((m) => (m === '!' && net.rng.chance(0.3) ? '.' : m)).join('');
   }
   const successes = [...marks].filter((c) => c === '!').length;
   const hops = forward.hops.length || 1;
   const rttMs = [...marks].filter((c) => c === '!').map(() => hops + net.rng.int(0, hops * 2));
   return { marks, successes, rttMs, hops: Math.max(0, forward.hops.length - 1), destDevice };
+}
+
+/** Does traffic between these devices cross a link with a duplex mismatch? (Hosts include their access switch.) */
+export function lossyPath(net: Network, from: string, to: string, hops: string[]): boolean {
+  const bad = net.mismatchedLinks();
+  if (!bad.length) return false;
+  const on = new Set([from, to, ...hops]);
+  for (const id of [from, to]) {
+    const d = net.device(id);
+    if (d.kind !== 'pc' && d.kind !== 'server' && d.kind !== 'printer') continue;
+    for (const name of Object.keys(d.hardware)) {
+      const p = net.peerOf(id, name);
+      if (p) on.add(p.device);
+    }
+  }
+  return bad.some((l) => on.has(l.a.device) && on.has(l.b.device));
 }
 
 export interface TraceHop {

@@ -15,6 +15,7 @@ import { NAT_TEMPLATES } from './ticketsNat';
 import { GUEST_TICKETS } from './ticketsGuest';
 import { ROUTING_TICKETS } from './ticketsRouting';
 import { SWITCHING_TICKETS } from './ticketsSwitching';
+import { OPS_TICKETS } from './ticketsOps';
 import { flushDns, resolve } from '../sim/dns';
 import {
   FS01, INTERNET, NIC, floorOf, freePeople, freePorts, person, pickPerson, portLabel, reaches, userIncident,
@@ -568,7 +569,7 @@ const defaultRouteGone: TicketTemplate = {
 const fileServerSpeed: TicketTemplate = {
   id: 'fs-speed',
   difficulty: 'moderate',
-  canStart: (ctx) => !ctx.activeTemplates.has('fs-speed') && freePeople(ctx).length > 0,
+  canStart: (ctx) => !ctx.activeTemplates.has('fs-speed') && !ctx.activeTemplates.has('duplex-mismatch') && freePeople(ctx).length > 0,
   plan: pickPerson,
   build: (env, params) => {
     const net = env.net;
@@ -706,6 +707,7 @@ export const TEMPLATES: TicketTemplate[] = [
   ...GUEST_TICKETS,
   ...ROUTING_TICKETS,
   ...SWITCHING_TICKETS,
+  ...OPS_TICKETS,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

@@ -110,6 +110,7 @@ export class Network {
 
   advance(ms: number): void {
     this.time += ms;
+    this.countDuplexErrors(ms);
     let changed = false;
     for (const device of this.devices.values()) {
       if (device.bootingUntil !== null && this.time >= device.bootingUntil) {
@@ -135,6 +136,76 @@ export class Network {
     const ps = pd.running.interfaces[peer.iface]?.speed;
     const theirs = ps === 'auto' || ps === undefined ? (phw?.maxSpeed ?? mine) : ps;
     return Math.min(mine, theirs);
+  }
+
+  /**
+   * Duplex a port runs at. A port with duplex hard-coded doesn't negotiate, so an auto port facing it can only sense
+   * the speed and falls back to half duplex (Gigabit has no half duplex in practice, so it stays full).
+   */
+  negotiatedDuplex(deviceId: string, iface: string): 'full' | 'half' | null {
+    const speed = this.negotiatedSpeed(deviceId, iface);
+    if (speed === null) return null;
+    const own = this.device(deviceId).running.interfaces[iface]?.duplex ?? 'auto';
+    if (own !== 'auto') return own;
+    const peer = this.peerOf(deviceId, iface);
+    const theirs = peer ? (this.device(peer.device).running.interfaces[peer.iface]?.duplex ?? 'auto') : 'auto';
+    return theirs === 'auto' || speed >= 1000 ? 'full' : 'half';
+  }
+
+  /** Both ends are up but disagree on duplex: the half side sees late collisions, the full side CRC errors and runts. */
+  duplexMismatch(deviceId: string, iface: string): boolean {
+    const peer = this.peerOf(deviceId, iface);
+    if (!peer) return false;
+    const mine = this.negotiatedDuplex(deviceId, iface);
+    const theirs = this.negotiatedDuplex(peer.device, peer.iface);
+    return mine !== null && theirs !== null && mine !== theirs;
+  }
+
+  /** Links running with a duplex mismatch (cached per version). */
+  mismatchedLinks(): Link[] {
+    if (this.mismatchCache?.version !== this.version) {
+      this.mismatchCache = { version: this.version, links: this.links.filter((l) => this.duplexMismatch(l.a.device, l.a.iface)) };
+    }
+    return this.mismatchCache.links;
+  }
+
+  private mismatchCache: { version: number; links: Link[] } | null = null;
+
+  /** Error counters climb on mismatched links; CDP between network devices complains once a minute. */
+  private countDuplexErrors(ms: number): void {
+    const sec = ms / 1000;
+    for (const link of this.mismatchedLinks()) {
+      for (const [end, other] of [
+        [link.a, link.b],
+        [link.b, link.a],
+      ]) {
+        const d = this.device(end.device);
+        const c = ((d.ifCounters ??= {})[end.iface] ??= { crc: 0, runts: 0, lateCollisions: 0, collisions: 0, deferred: 0, since: this.time });
+        const n = (lo: number, hi: number) => Math.round(this.rng.int(lo, hi) * sec);
+        if (this.negotiatedDuplex(end.device, end.iface) === 'full') {
+          c.crc += n(4, 14);
+          c.runts += n(2, 9);
+        } else {
+          c.lateCollisions += n(2, 8);
+          c.collisions += n(6, 20);
+          c.deferred += n(1, 5);
+        }
+        const od = this.device(other.device);
+        if (isHostKind(d.kind) || isHostKind(od.kind) || !this.isOnline(d)) continue;
+        const logAt = (d.duplexLogAt ??= {});
+        if (logAt[end.iface] !== undefined && this.time - logAt[end.iface] < 60000) continue;
+        logAt[end.iface] = this.time;
+        const theirs = this.negotiatedDuplex(other.device, other.iface);
+        this.log(d.id, `%CDP-4-DUPLEX_MISMATCH: duplex mismatch discovered on ${end.iface} (not ${theirs} duplex), with ${od.running.hostname} ${other.iface} (${theirs} duplex).`);
+      }
+    }
+  }
+
+  /** `clear counters`: zero an interface's (or every interface's) error counters. */
+  clearCounters(deviceId: string, iface?: string): void {
+    const d = this.device(deviceId);
+    if (!iface) d.ifCounters = {};
+    else if (d.ifCounters) delete d.ifCounters[iface];
   }
 
   wallClock(time = this.time): Date {
@@ -339,7 +410,7 @@ export class Network {
    * Which frames a port sends/receives: 'u' = untagged, 't10' = tagged VLAN 10.
    * Maps each channel to the internal node it connects to.
    */
-  private channels(device: Device, ifc: InterfaceConfig): Map<string, string> {
+  channels(device: Device, ifc: InterfaceConfig): Map<string, string> {
     const result = new Map<string, string>();
     if (ifc.switchport) {
       const sp = ifc.switchport;

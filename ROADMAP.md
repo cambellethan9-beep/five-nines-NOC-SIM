@@ -226,11 +226,23 @@ error messages, the faults it can cause, and ticket templates that use it.
          BPDU guard on access switches, sticky port security on the 2nd floor, VTP transparent, a spare (shut) second
          uplink core Gi0/3 to CR-ACC1 Gi0/2. Tickets: storm via bpdufilter (expert), desk switch vs BPDU guard,
          loaner PC vs port security, LACP uplink request (hard), VTP wipe (expert)
-  9. [ ] Duplex-mismatch errors (CRC, late collisions), `show mac address-table`, `show interfaces counters errors`,
-         password hardening (`service password-encryption`, `exec-timeout`, `login block-for`, banners), config backup
-         and restore (`copy run tftp`, `archive`, `configure replace`)
+  9. [x] Operations: duplex negotiation (a hard-coded end stops autonegotiating, the auto end falls back to half at
+         10/100) with CRC/runts on the full side, late collisions on the half side, lossy pings and a CDP
+         DUPLEX_MISMATCH log between switches; `show interfaces` error counters, `show interfaces counters errors`,
+         `clear counters`; `show mac address-table` [dynamic|static|address|interface|vlan|count|aging-time] computed
+         from live L2 state (trunks, STP, EtherChannel, sticky = STATIC) and `clear mac address-table dynamic`
+         (stations relearn as they talk); hardening: `service password-encryption` (real type 7, `password 7` input),
+         `enable password`, `security passwords min-length`, `exec-timeout` (idle consoles and SSH sessions really get
+         logged out), `login block-for` quiet mode + `login quiet-mode access-class`, `show login`, `banner login|exec`
+         (login banner before SSH auth, motd after); backup/restore: `copy` between running/startup/flash:/tftp: with
+         IOS prompts, a TFTP server on the NOC PC, `archive` (path with $h/$t, write-memory, time-period, maximum),
+         `archive config`, `show archive`, `show archive config differences`, `configure replace [list] [force]`,
+         `dir flash:`. A copy into running-config merges like IOS (it never un-shuts a port); a replace is exact.
+         Office: the predecessor left `exec-timeout 0 0` on CR-RTR1/CR-CORE1 and a clear-text `username backup` on the
+         router. Tickets: duplex mismatch to a server, rogue device hunt by MAC, config backups request, edge-router
+         hardening audit
 - [ ] **Faults and tickets that use them:**
-  - L1/L2: duplex mismatch errors, native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
+  - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
   - L3: wrong gateway, wrong IP/mask, missing static route, OSPF neighbor down (area/timers/passive), ACL blocking traffic
   - Services: DHCP scope exhausted / helper missing, DNS wrong, NTP drift, NAT broken after a router swap
   - Endpoint: APIPA address, wrong DNS on a PC

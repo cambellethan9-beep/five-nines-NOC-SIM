@@ -97,7 +97,8 @@ function Icon({ kind }: { kind: Device['kind'] | 'cloud' }) {
 export function MapView({ game, tick, selected, onSelect, onConsole, onMonitor }: Props) {
   const net = game.net;
   const layout = game.office.layout;
-  const devices = [...net.devices.values()];
+  // Only gear that's documented on the map: an unknown device someone plugged in doesn't draw itself.
+  const devices = [...net.devices.values()].filter((d) => layout[d.id]);
   void tick;
 
   return (
@@ -115,6 +116,7 @@ export function MapView({ game, tick, selected, onSelect, onConsole, onMonitor }
           {net.links.map((l) => {
             const a = layout[l.a.device];
             const b = layout[l.b.device];
+            if (!a || !b) return null;
             return <line key={l.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} className={linkClass(game, l)} />;
           })}
           {devices.map((d) => {

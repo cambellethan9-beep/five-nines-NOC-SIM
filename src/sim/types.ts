@@ -74,6 +74,10 @@ export interface LineConfig {
   rotary: number | null;
   /** `access-class NAME in`: standard ACL on who may connect (vty lines). */
   accessClass?: string | null;
+  /** `exec-timeout M S` (absent = IOS default 10 0; [0, 0] = never). */
+  execTimeout?: [number, number];
+  /** Stored as type 7 (set by `service password-encryption` or `password 7 ...`). */
+  passwordEncrypted?: boolean;
 }
 
 export interface LocalUser {
@@ -81,6 +85,37 @@ export interface LocalUser {
   /** `username X secret Y` (hashed in config) or `username X password Y` (plain text). */
   secret: string | null;
   password: string | null;
+  /** The password is stored as type 7. */
+  passwordEncrypted?: boolean;
+}
+
+/** `archive`: where `archive config` (and write-memory / time-period) put copies of the running config. */
+export interface ArchiveConfig {
+  path: string | null;
+  writeMemory: boolean;
+  /** Minutes between automatic archives. */
+  timePeriod: number | null;
+  maximum: number | null;
+}
+
+/** A saved configuration file (flash:, or on a TFTP server). Keeps the exact config so restores are faithful. */
+export interface StoredFile {
+  text: string;
+  config: DeviceConfig;
+  time: number;
+  /** Device ID the configuration came from. */
+  from: string;
+}
+
+/** Interface error counters (runtime; cleared by `clear counters`). */
+export interface IfCounters {
+  crc: number;
+  runts: number;
+  lateCollisions: number;
+  collisions: number;
+  deferred: number;
+  /** Sim time the counters were last cleared. */
+  since: number;
 }
 
 /** Everything that `show running-config` covers. Copied to startup-config by `write memory`. */
@@ -126,6 +161,14 @@ export interface DeviceConfig {
   /** `ip name-server` and `ip host`. */
   nameServers?: Ipv4[];
   hosts?: Record<string, Ipv4>;
+  /** Hardening: `service password-encryption`, `enable password`, `security passwords min-length`, `login block-for`. */
+  servicePasswordEncryption?: boolean;
+  enablePassword?: { pw: string; encrypted: boolean } | null;
+  minPasswordLength?: number;
+  loginBlock?: { blockFor: number; attempts: number; within: number; quietAcl: string | null } | null;
+  bannerLogin?: string | null;
+  bannerExec?: string | null;
+  archive?: ArchiveConfig | null;
 }
 
 export interface PortHardware {
@@ -188,6 +231,23 @@ export interface Device {
   clockSetAt?: number;
   /** IOS resolver cache (`show hosts`, temp entries). */
   hostCache?: Record<string, { ip: Ipv4; at: number }>;
+  /** Interface error counters (duplex mismatch). */
+  ifCounters?: Record<string, IfCounters>;
+  /** Runs a TFTP server (the NOC PC). */
+  tftpd?: boolean;
+  /** Files on flash: (network gear) or in the TFTP root (the NOC PC). */
+  files?: Record<string, StoredFile>;
+  /** `archive`: files written so far, oldest first, the next number and when the last automatic one ran. */
+  archiveFiles?: string[];
+  archiveNext?: number;
+  archiveAt?: number;
+  /** `login block-for`: recent failed logins and the end of quiet mode. */
+  loginFailures?: number[];
+  quietUntil?: number;
+  /** `clear mac address-table dynamic`: when the table was last flushed. */
+  macClearedAt?: number;
+  /** Last `%CDP-4-DUPLEX_MISMATCH` message, per interface. */
+  duplexLogAt?: Record<string, number>;
 }
 
 export interface LinkEnd {

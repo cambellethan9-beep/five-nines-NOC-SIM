@@ -131,6 +131,13 @@ export function predecessorDocs(office: Office): Doc[] {
             'Quick test from anywhere inside: `ping 8.8.8.8`.',
           ],
         },
+        { h: 'Backups' },
+        {
+          ul: [
+            'The NOC PC (10.10.99.50) runs a TFTP server for config backups. Setting up `archive` on everything is on my list.',
+            'I set `exec-timeout 0 0` on the router and core because getting kicked out mid-change drove me nuts. The access switches still log you out after 10 idle minutes.',
+          ],
+        },
       ],
     },
     {

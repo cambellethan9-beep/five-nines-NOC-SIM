@@ -12,6 +12,7 @@ import { classfulPrefix, formatIp, prefixToMask } from './ip';
 import type { Network } from './network';
 import { l3Interfaces, macOf, routes, routingTable, type Route } from './routing';
 import { interfaceRates } from './traffic';
+import { type7Encode } from './hardening';
 import type { Device, DeviceConfig, InterfaceConfig, LineConfig } from './types';
 import { isHostKind, isSwitchKind } from './types';
 
@@ -51,8 +52,24 @@ export function parseVlanList(text: string): number[] | null {
   return result;
 }
 
+/** Type 5 hashes seen in rendered configs, so a saved config can be loaded back (`copy tftp: running-config`). */
+const SECRET_REGISTRY = new Map<string, string>();
+/** A secret loaded from a hash we can't reverse: it never matches a typed password. */
+export const UNKNOWN_SECRET = '\u0000hash:';
+
+export function secretFromHash(hash: string): string {
+  return SECRET_REGISTRY.get(hash) ?? UNKNOWN_SECRET + hash;
+}
+
 /** Deterministic fake MD5-crypt hash so `enable secret` shows as "$1$..." like the real thing. */
-function fakeSecretHash(secret: string): string {
+export function fakeSecretHash(secret: string): string {
+  if (secret.startsWith(UNKNOWN_SECRET)) return secret.slice(UNKNOWN_SECRET.length);
+  const h5 = md5ish(secret);
+  SECRET_REGISTRY.set(h5, secret);
+  return h5;
+}
+
+function md5ish(secret: string): string {
   const alphabet = './0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
   let h = 2166136261;
   for (let i = 0; i < secret.length; i++) h = Math.imul(h ^ secret.charCodeAt(i), 16777619);
@@ -71,18 +88,41 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
   const lines: string[] = ['!'];
   lines.push(`version ${OS_VERSION[device.kind]?.split('(')[0] ?? '15.2'}`);
   lines.push(...timestampLines(device));
-  lines.push('no service password-encryption', '!', `hostname ${config.hostname}`, '!');
+  lines.push(config.servicePasswordEncryption ? 'service password-encryption' : 'no service password-encryption', '!', `hostname ${config.hostname}`, '!');
   if (isSwitchKind(device.kind)) lines.push(...switchGlobalLines(device));
   const top = loggingTopLines(device);
   if (top.length) lines.push(...top, '!');
-  if (config.enableSecret) lines.push(`enable secret 5 ${fakeSecretHash(config.enableSecret)}`, '!');
+  if (config.enableSecret) lines.push(`enable secret 5 ${fakeSecretHash(config.enableSecret)}`);
+  if (config.enablePassword) lines.push(config.enablePassword.encrypted ? `enable password 7 ${type7Encode(config.enablePassword.pw)}` : `enable password ${config.enablePassword.pw}`);
+  if (config.enableSecret || config.enablePassword) lines.push('!');
+  if (config.minPasswordLength) lines.push(`security passwords min-length ${config.minPasswordLength}`, '!');
   const userNames = Object.keys(config.users).sort();
   for (const name of userNames) {
     const u = config.users[name];
     const priv = u.privilege !== 1 ? ` privilege ${u.privilege}` : '';
-    lines.push(u.secret !== null ? `username ${name}${priv} secret 5 ${fakeSecretHash(u.secret)}` : `username ${name}${priv} password 0 ${u.password}`);
+    lines.push(
+      u.secret !== null
+        ? `username ${name}${priv} secret 5 ${fakeSecretHash(u.secret)}`
+        : u.passwordEncrypted
+          ? `username ${name}${priv} password 7 ${type7Encode(u.password ?? '')}`
+          : `username ${name}${priv} password 0 ${u.password}`,
+    );
   }
   if (userNames.length) lines.push('!');
+  if (config.archive) {
+    const a = config.archive;
+    lines.push('archive');
+    if (a.path) lines.push(` path ${a.path}`);
+    if (a.maximum) lines.push(` maximum ${a.maximum}`);
+    if (a.writeMemory) lines.push(' write-memory');
+    if (a.timePeriod) lines.push(` time-period ${a.timePeriod}`);
+    lines.push('!');
+  }
+  if (config.loginBlock) {
+    lines.push(`login block-for ${config.loginBlock.blockFor} attempts ${config.loginBlock.attempts} within ${config.loginBlock.within}`);
+    if (config.loginBlock.quietAcl) lines.push(`login quiet-mode access-class ${config.loginBlock.quietAcl}`);
+    lines.push('!');
+  }
   if (!config.domainLookup) lines.push('no ip domain-lookup');
   if (config.domainName) lines.push(`ip domain-name ${config.domainName}`);
   for (const ns of config.nameServers?.length ? [config.nameServers] : []) lines.push(`ip name-server ${ns.map(formatIp).join(' ')}`);
@@ -152,7 +192,10 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
   const aclLines = aclConfigLines(config.acls ?? {});
   if (aclLines.length) lines.push(...aclLines, '!');
   lines.push(...loggingBottomLines(device));
-  if (config.bannerMotd !== null) lines.push(`banner motd ^C${config.bannerMotd}^C`, '!');
+  if (config.bannerExec) lines.push(`banner exec ^C${config.bannerExec}^C`);
+  if (config.bannerLogin) lines.push(`banner login ^C${config.bannerLogin}^C`);
+  if (config.bannerMotd !== null) lines.push(`banner motd ^C${config.bannerMotd}^C`);
+  if (config.bannerExec || config.bannerLogin || config.bannerMotd !== null) lines.push('!');
   lines.push('line con 0', ...renderLine(config.lines.con, false));
   const vty = renderLine(config.lines.vty, true);
   lines.push('!', 'line vty 0 4', ...vty, 'line vty 5 15', ...vty, '!');
@@ -165,7 +208,8 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
 function renderLine(line: LineConfig, isVty: boolean): string[] {
   const out: string[] = [];
   if (line.accessClass) out.push(` access-class ${line.accessClass} in`);
-  if (line.password) out.push(` password ${line.password}`);
+  if (line.execTimeout && (line.execTimeout[0] !== 10 || line.execTimeout[1] !== 0)) out.push(` exec-timeout ${line.execTimeout[0]} ${line.execTimeout[1]}`);
+  if (line.password) out.push(line.passwordEncrypted ? ` password 7 ${type7Encode(line.password)}` : ` password ${line.password}`);
   if (line.loggingSynchronous) out.push(' logging synchronous');
   if (line.login === 'local') out.push(' login local');
   else if (line.login === 'line') out.push(' login');
@@ -259,7 +303,7 @@ export function showInterface(net: Network, device: Device, ifc: InterfaceConfig
   if (hw) {
     const up = net.isUp(device.id, ifc.name);
     const speed = net.negotiatedSpeed(device.id, ifc.name) ?? (ifc.speed === 'auto' ? hw.maxSpeed : ifc.speed);
-    const duplex = ifc.duplex === 'auto' ? 'Full' : ifc.duplex === 'full' ? 'Full' : 'Half';
+    const duplex = net.negotiatedDuplex(device.id, ifc.name) === 'half' ? 'Half' : 'Full';
     lines.push(up ? `  ${duplex}-duplex, ${speed}Mb/s, media type is RJ45` : '  Auto-duplex, Auto-speed, media type is RJ45');
   }
   lines.push(
@@ -269,16 +313,45 @@ export function showInterface(net: Network, device: Device, ifc: InterfaceConfig
   const rates = hw ? interfaceRates(net, device.id, ifc.name) : { inBps: 0, outBps: 0 };
   const pps = (bps: number) => Math.round(bps / 8 / 700);
   const uptimeSec = Math.max(0, (net.time - device.bootedAt) / 1000);
-  const inPkts = Math.round(pps(rates.inBps) * uptimeSec);
-  const outPkts = Math.round(pps(rates.outBps) * uptimeSec);
+  const cnt = device.ifCounters?.[ifc.name];
+  const since = Math.max(0, (net.time - Math.max(device.bootedAt, cnt?.since ?? 0)) / 1000);
+  const inPkts = Math.round(pps(rates.inBps) * (cnt ? since : uptimeSec));
+  const outPkts = Math.round(pps(rates.outBps) * (cnt ? since : uptimeSec));
+  const crc = cnt?.crc ?? 0;
+  const runts = cnt?.runts ?? 0;
+  const late = cnt?.lateCollisions ?? 0;
+  const coll = cnt?.collisions ?? 0;
   lines.push(
     `  5 minute input rate ${Math.round(rates.inBps)} bits/sec, ${pps(rates.inBps)} packets/sec`,
     `  5 minute output rate ${Math.round(rates.outBps)} bits/sec, ${pps(rates.outBps)} packets/sec`,
     `     ${inPkts} packets input, ${inPkts * 700} bytes, 0 no buffer`,
-    '     0 input errors, 0 CRC, 0 frame, 0 overrun, 0 ignored',
+    `     Received ${Math.round(inPkts / 40)} broadcasts (${Math.round(inPkts / 90)} multicasts)`,
+    `     ${runts} runts, 0 giants, 0 throttles`,
+    `     ${crc + runts} input errors, ${crc} CRC, ${Math.round(crc / 7)} frame, 0 overrun, 0 ignored`,
     `     ${outPkts} packets output, ${outPkts * 700} bytes, 0 underruns`,
-    '     0 output errors, 0 collisions, 0 interface resets',
+    `     ${late} output errors, ${coll} collisions, ${cnt ? 1 : 0} interface resets`,
+    `     0 babbles, ${late} late collision, ${cnt?.deferred ?? 0} deferred`,
   );
+  return lines;
+}
+
+/** `show interfaces counters errors` (switches). */
+export function showCountersErrors(device: Device): string[] {
+  const ports = sortedInterfaces(device.running).filter((i) => device.hardware[i.name] || i.name.startsWith('Port-channel'));
+  const c = (n: string) => device.ifCounters?.[n];
+  const pad = (v: number, w: number) => String(v).padStart(w);
+  const lines = ['', 'Port        Align-Err     FCS-Err    Xmit-Err     Rcv-Err  UnderSize  OutDiscards'];
+  for (const p of ports) {
+    const x = c(p.name);
+    lines.push(`${shortIfName(p.name).padEnd(10)}${pad(Math.round((x?.crc ?? 0) / 7), 11)}${pad(x?.crc ?? 0, 12)}${pad(x?.lateCollisions ?? 0, 12)}${pad((x?.crc ?? 0) + (x?.runts ?? 0), 12)}${pad(x?.runts ?? 0, 11)}${pad(0, 13)}`);
+  }
+  lines.push('', 'Port      Single-Col  Multi-Col   Late-Col  Excess-Col  Carri-Sen      Runts     Giants');
+  for (const p of ports) {
+    const x = c(p.name);
+    const coll = x?.collisions ?? 0;
+    lines.push(`${shortIfName(p.name).padEnd(10)}${pad(Math.ceil(coll * 0.6), 10)}${pad(Math.floor(coll * 0.4), 11)}${pad(x?.lateCollisions ?? 0, 11)}${pad(0, 12)}${pad(0, 11)}${pad(x?.runts ?? 0, 11)}${pad(0, 11)}`);
+  }
+  lines.push('');
   return lines;
 }
 
@@ -293,7 +366,7 @@ export function showInterfacesStatus(net: Network, device: Device): string[] {
     if (ifc.switchport) vlan = net.operationalMode(device, ifc) === 'trunk' && s.protocol === 'up' ? 'trunk' : String(ifc.switchport.accessVlan);
     const hw = device.hardware[ifc.name];
     const connected = status === 'connected';
-    const duplex = ifc.duplex === 'auto' ? (connected ? 'a-full' : 'auto') : ifc.duplex;
+    const duplex = ifc.duplex === 'auto' ? (connected ? `a-${net.negotiatedDuplex(device.id, ifc.name) ?? 'full'}` : 'auto') : ifc.duplex;
     const speed = ifc.speed === 'auto' ? (connected ? `a-${net.negotiatedSpeed(device.id, ifc.name) ?? hw.maxSpeed}` : 'auto') : String(ifc.speed);
     const type = hw.maxSpeed === 1000 ? '10/100/1000BaseTX' : '10/100BaseTX';
     const name = (ifc.description ?? '').slice(0, 18);

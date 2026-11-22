@@ -48,11 +48,16 @@ import { vtpOf } from '../l2';
 import { loggingOf, severityOf } from '../mgmt';
 import { iosNameServer, iosResolve } from '../dns';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
+import { execTimeoutMs, passwordTooShort, type7Decode } from '../hardening';
+import { archiveConfig } from '../backup';
+import { addArchiveMode, addHardeningGlobal, addHardeningLine, addOpsExec, addOpsShows } from './opsCommands';
 import { CommandTree, complete, formatHelp, help, parse, type Args } from './parser';
+
+type BannerKind = 'motd' | 'login' | 'exec';
 
 export type Mode =
   | 'user' | 'priv' | 'config' | 'if' | 'subif' | 'range' | 'vlan' | 'line' | 'acl' | 'dhcp'
-  | 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo';
+  | 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo' | 'archive';
 
 export interface CliResult {
   output: string[];
@@ -258,6 +263,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   addMgmtShows(t, privileged);
   if (kind === 'router' || kind === 'l3switch') addRoutingShows(t, privileged);
   if (isSwitchKind(kind)) addSwitchShows(t, privileged);
+  addOpsShows(t, kind, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -373,6 +379,8 @@ function buildUser(kind: DeviceKind): Tree {
 function save(c: Ctx, out: string[]): void {
   c.dev.startup = cloneConfig(c.dev.running);
   out.push('Building configuration...', '[OK]');
+  // `archive` with `write-memory`: every save also archives a copy.
+  if (c.dev.running.archive?.writeMemory && c.dev.running.archive.path) archiveConfig(c.net, c.dev);
 }
 
 function buildPriv(kind: DeviceKind): Tree {
@@ -391,6 +399,7 @@ function buildPriv(kind: DeviceKind): Tree {
       },
     }),
   );
+  addOpsExec(t);
   t.add('write', H, (c) => save(c, c.out));
   t.add('write memory', H, (c) => save(c, c.out));
   t.add('copy running-config startup-config', H, (c) =>
@@ -578,12 +587,19 @@ function buildConfig(kind: DeviceKind): Tree {
     c.dev.running.domainLookup = false;
   });
   t.add('enable secret <word:pw>', HC, (c, a) => {
+    const short = passwordTooShort(c.dev.running, a.pw as string);
+    if (short) return void c.out.push(short);
     c.dev.running.enableSecret = a.pw as string;
   });
   t.add('no enable secret', HC, (c) => {
     c.dev.running.enableSecret = null;
   });
   t.add('banner motd <line:text>', HC, (c, a) => c.s.startBanner(a.text as string, c.out));
+  t.add('banner login <line:text>', { ...HC, login: 'Set login banner' }, (c, a) => c.s.startBanner(a.text as string, c.out, 'login'));
+  t.add('banner exec <line:text>', { ...HC, exec: 'Set EXEC process creation banner' }, (c, a) => c.s.startBanner(a.text as string, c.out, 'exec'));
+  t.add('no banner login', HC, (c) => void (c.dev.running.bannerLogin = null));
+  t.add('no banner exec', HC, (c) => void (c.dev.running.bannerExec = null));
+  addHardeningGlobal(t);
   t.add('no banner motd', HC, (c) => {
     c.dev.running.bannerMotd = null;
   });
@@ -634,19 +650,32 @@ const HS: Record<string, string> = {
 };
 
 function addRemoteAccessConfig(t: Tree): void {
-  const setUser = (c: Ctx, a: Args, kind: 'secret' | 'password') => {
+  const setUser = (c: Ctx, a: Args, kind: 'secret' | 'password', type7 = false) => {
     const name = a.user as string;
     const existing = c.dev.running.users[name];
+    let pw = a.pw as string;
+    if (type7) {
+      const clear = type7Decode(pw);
+      if (clear === null) return void c.out.push('% Invalid encrypted password');
+      pw = clear;
+    } else {
+      const short = passwordTooShort(c.dev.running, pw);
+      if (short) return void c.out.push(short);
+    }
     c.dev.running.users[name] = {
       privilege: (a.level as number | undefined) ?? existing?.privilege ?? 1,
-      secret: kind === 'secret' ? (a.pw as string) : null,
-      password: kind === 'password' ? (a.pw as string) : null,
+      secret: kind === 'secret' ? pw : null,
+      password: kind === 'password' ? pw : null,
+      ...(kind === 'password' && (type7 || c.dev.running.servicePasswordEncryption) ? { passwordEncrypted: true } : {}),
     };
   };
   t.add('username <word:user> secret <word:pw>', HS, (c, a) => setUser(c, a, 'secret'));
   t.add('username <word:user> password <word:pw>', HS, (c, a) => setUser(c, a, 'password'));
   t.add('username <word:user> privilege <number:level:0-15> secret <word:pw>', HS, (c, a) => setUser(c, a, 'secret'));
   t.add('username <word:user> privilege <number:level:0-15> password <word:pw>', HS, (c, a) => setUser(c, a, 'password'));
+  t.add('username <word:user> password 0 <word:pw>', HS, (c, a) => setUser(c, a, 'password'));
+  t.add('username <word:user> password 7 <word:pw>', HS, (c, a) => setUser(c, a, 'password', true));
+  t.add('username <word:user> privilege <number:level:0-15> password 7 <word:pw>', HS, (c, a) => setUser(c, a, 'password', true));
   t.add('no username <word:user>', HS, (c, a) => {
     delete c.dev.running.users[a.user as string];
   });
@@ -770,8 +799,27 @@ const HL: Record<string, string> = {
 function buildLineMode(): Tree {
   const t: Tree = new CommandTree();
   const line = (c: Ctx) => c.dev.running.lines[c.s.lineContext!];
-  t.add('password <word:pw>', HL, (c, a) => void (line(c).password = a.pw as string));
-  t.add('no password', HL, (c) => void (line(c).password = null));
+  t.add('password <word:pw>', HL, (c, a) => {
+    const short = passwordTooShort(c.dev.running, a.pw as string);
+    if (short) return void c.out.push(short);
+    line(c).password = a.pw as string;
+    line(c).passwordEncrypted = !!c.dev.running.servicePasswordEncryption;
+  });
+  t.add('password 0 <word:pw>', HL, (c, a) => {
+    line(c).password = a.pw as string;
+    line(c).passwordEncrypted = !!c.dev.running.servicePasswordEncryption;
+  });
+  t.add('password 7 <word:pw>', HL, (c, a) => {
+    const clear = type7Decode(a.pw as string);
+    if (clear === null) return void c.out.push('% Invalid encrypted password');
+    line(c).password = clear;
+    line(c).passwordEncrypted = true;
+  });
+  t.add('no password', HL, (c) => {
+    line(c).password = null;
+    delete line(c).passwordEncrypted;
+  });
+  addHardeningLine(t);
   t.add('login', HL, (c) => {
     if (!line(c).password) c.out.push('% Login disabled on line until \'password\' is set');
     line(c).login = 'line';
@@ -966,6 +1014,7 @@ function buildVlanMode(): Tree {
 }
 
 interface Trees {
+  archive: Tree;
   user: Tree;
   priv: Tree;
   config: Tree;
@@ -1037,6 +1086,7 @@ export function treesFor(kind: DeviceKind): Trees {
       'router-af': withNav(addEigrpAf),
       'router-af-if': withNav(addEigrpAfInterface),
       'router-af-topo': withNav(addEigrpTopology),
+      archive: withNav(addArchiveMode),
     };
     treeCache.set(kind, trees);
   }
@@ -1054,7 +1104,9 @@ export class CliSession {
   private idle = false;
   private wasBooting = false;
   private enableAttempts = 0;
-  private bannerBuffer: { delim: string; lines: string[] } | null = null;
+  private bannerBuffer: { delim: string; lines: string[]; kind: BannerKind } | null = null;
+  /** Sim time of the last input, for exec-timeout. */
+  private lastActivity: number;
   lineContext: 'con' | 'vty' | null = null;
   /** The ACL being edited in `(config-std-nacl)#` / `(config-ext-nacl)#`. */
   aclContext: string | null = null;
@@ -1083,6 +1135,7 @@ export class CliSession {
     this.remoteUser = opts.remote?.user ?? null;
     if (opts.remote && opts.remote.privilege >= 15) this.mode = 'priv';
     this.lastLogSeq = net.lastLogSeq;
+    this.lastActivity = net.time;
   }
 
   get device(): Device {
@@ -1127,6 +1180,8 @@ export class CliSession {
         return `${host}(config-router-af-interface)#`;
       case 'router-af-topo':
         return `${host}(config-router-af-topology)#`;
+      case 'archive':
+        return `${host}(config-archive)#`;
       case 'acl':
         return `${host}(config-${this.aclType === 'standard' ? 'std' : 'ext'}-nacl)#`;
     }
@@ -1172,6 +1227,7 @@ export class CliSession {
     const result: CliResult = { output: [] };
     if (this.booting) return result;
     const out = result.output;
+    this.lastActivity = this.net.time;
     if (this.bannerBuffer) {
       this.continueBanner(line);
       return result;
@@ -1289,7 +1345,7 @@ export class CliSession {
   }
 
   enable(out: string[]): void {
-    const secret = this.device.running.enableSecret;
+    const secret = this.device.running.enableSecret ?? this.device.running.enablePassword?.pw ?? null;
     if (!secret && this.isRemote) {
       // Over SSH/Telnet, IOS refuses `enable` until an enable secret exists.
       out.push('% No password set', '');
@@ -1305,7 +1361,7 @@ export class CliSession {
         prompt: 'Password: ',
         secret: true,
         handle: (answer, o) => {
-          if (answer === this.device.running.enableSecret) {
+          if (answer === secret) {
             this.mode = 'priv';
             return;
           }
@@ -1335,7 +1391,12 @@ export class CliSession {
   /** Console login after RETURN, if `line con 0` has `login` configured. */
   private consoleLogin(out: string[]): void {
     const con = this.device.running.lines.con;
-    if (con.login === 'none' || (con.login === 'line' && !con.password)) return;
+    const exec = this.device.running.bannerExec;
+    if (con.login === 'none' || (con.login === 'line' && !con.password)) {
+      if (exec) out.push(exec, '');
+      return;
+    }
+    if (this.device.running.bannerLogin) out.push(this.device.running.bannerLogin, '');
     out.push('User Access Verification', '');
     let attempts = 0;
     let user = '';
@@ -1348,6 +1409,7 @@ export class CliSession {
           const ok = con.login === 'local' ? !!u && (u.secret ?? u.password) === answer : answer === con.password;
           if (ok) {
             if (con.login === 'local' && u.privilege >= 15) this.mode = 'priv';
+            if (exec) o.push('', exec, '');
             return;
           }
           attempts++;
@@ -1390,6 +1452,8 @@ export class CliSession {
       if (this.client.done) this.client = null;
       return lines;
     }
+    const timeout = this.timedOut();
+    if (timeout) return timeout;
     const logs = this.net.logsSince(this.deviceId, this.lastLogSeq);
     if (!logs.length) return [];
     this.lastLogSeq = logs[logs.length - 1].seq;
@@ -1399,6 +1463,20 @@ export class CliSession {
     const max = this.isRemote ? cfg.monitor : cfg.console;
     if (max === null) return [];
     return logs.filter((l) => severityOf(l.message) <= max).map((l) => (l.stamp === '' ? l.message : `${l.stamp ?? this.net.formatLogTime(l.time)}: ${l.message}`));
+  }
+
+  /** exec-timeout: an idle EXEC session is logged out (the console goes back to "Press RETURN"). */
+  private timedOut(): string[] | null {
+    if (this.idle || this.closed || this.booting) return null;
+    const ms = execTimeoutMs(this.device.running.lines[this.isRemote ? 'vty' : 'con']);
+    if (!ms || this.net.time - this.lastActivity < ms) return null;
+    if (this.isRemote) {
+      this.closed = true;
+      return [''];
+    }
+    this.reset();
+    this.idle = true;
+    return ['', '', `${this.device.running.hostname} con0 is now available`, '', '', '', '', '', 'Press RETURN to get started.', ''];
   }
 
   enterRouter(ctx: RouterCtx, mode: 'router' | 'router-named' | 'router-af' | 'router-af-if' | 'router-af-topo'): void {
@@ -1502,16 +1580,23 @@ export class CliSession {
     this.mode = saved;
   }
 
-  startBanner(text: string, out: string[]): void {
+  startBanner(text: string, out: string[], kind: BannerKind = 'motd'): void {
     const delim = text[0];
     const rest = text.slice(1);
     const close = rest.indexOf(delim);
     if (close >= 0) {
-      this.device.running.bannerMotd = rest.slice(0, close);
+      this.setBanner(kind, rest.slice(0, close));
       return;
     }
     out.push(`Enter TEXT message.  End with the character '${delim}'.`);
-    this.bannerBuffer = { delim, lines: rest ? [rest] : [] };
+    this.bannerBuffer = { delim, lines: rest ? [rest] : [], kind };
+  }
+
+  private setBanner(kind: BannerKind, text: string): void {
+    const cfg = this.device.running;
+    if (kind === 'motd') cfg.bannerMotd = text;
+    else if (kind === 'login') cfg.bannerLogin = text;
+    else cfg.bannerExec = text;
   }
 
   private continueBanner(line: string): void {
@@ -1522,7 +1607,7 @@ export class CliSession {
       return;
     }
     buf.lines.push(line.slice(0, close));
-    this.device.running.bannerMotd = buf.lines.join('\n').replace(/^\n+|\n+$/g, '');
+    this.setBanner(buf.kind, buf.lines.join('\n').replace(/^\n+|\n+$/g, ''));
     this.bannerBuffer = null;
   }
 

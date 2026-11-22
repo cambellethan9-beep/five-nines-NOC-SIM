@@ -407,8 +407,17 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   core.running.interfaces['FastEthernet0/23'].description = 'Spare to CR-RTR1 Gi0/2';
   SERVERS.forEach((s, i) => net.connect(s.id, nic(net.device(s.id)), 'core1', `FastEthernet0/${i + 1}`));
   net.connect('noc', nic(noc), 'core1', 'FastEthernet0/10');
+  // The NOC PC runs a TFTP server (nothing has ever been backed up to it).
+  noc.tftpd = true;
 
   for (const id of ['rtr1', 'core1', 'acc1', 'acc2']) inheritedSsh(net.device(id), net.rng.int(1000, 9999));
+  // The predecessor hated being logged out, and kept a clear-text break-glass account on the router.
+  for (const id of ['rtr1', 'core1']) {
+    const lines = net.device(id).running.lines;
+    lines.vty.execTimeout = [0, 0];
+    lines.con.execTimeout = [0, 0];
+  }
+  net.device('rtr1').running.users.backup = { privilege: 15, secret: null, password: 'Cedar2019!' };
   // Syslog to the NOC PC, SNMP for the NOC's poller, and time from the domain controller. CR-ACC2 is the
   // replacement switch a contractor installed last spring from a bare template: none of this was ever set up on it.
   const where: Record<string, string> = { rtr1: 'Server room rack 1', core1: 'Server room rack 1', acc1: '1st floor IDF closet' };
