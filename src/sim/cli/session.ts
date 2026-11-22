@@ -43,6 +43,8 @@ import {
   type RouterCtx,
 } from './routingCommands';
 import { addRoutingShows } from './routingShows';
+import { addSwitchGlobal, addSwitchInterface, addSwitchShows, propagatePortChannel, vtpChanged } from './switchCommands';
+import { vtpOf } from '../l2';
 import { loggingOf, severityOf } from '../mgmt';
 import { iosNameServer, iosResolve } from '../dns';
 import { applyFilter, FILTER_HELP, splitPipe } from './filters';
@@ -255,6 +257,7 @@ function addShows(t: Tree, kind: DeviceKind, privileged: boolean): void {
   addDhcpDnsShows(t, privileged, true);
   addMgmtShows(t, privileged);
   if (kind === 'router' || kind === 'l3switch') addRoutingShows(t, privileged);
+  if (isSwitchKind(kind)) addSwitchShows(t, privileged);
   if (privileged) {
     t.add('show running-config', H, (c) => c.out.push(...showRunning(c.dev)));
     t.add('show running-config interface <iface:if>', H, (c, a) => {
@@ -464,6 +467,7 @@ function buildConfig(kind: DeviceKind): Tree {
       const vlanMatch = /^Vlan(\d+)$/.exec(name);
       let ok = false;
       if (isLoopback && !parent) ok = true;
+      else if (name.startsWith('Port-channel') && !parent) ok = Number(name.slice(12)) >= 1 && Number(name.slice(12)) <= 48;
       else if (vlanMatch && sw) ok = Number(vlanMatch[1]) >= 1 && Number(vlanMatch[1]) <= 4094;
       else if (parent) ok = !!c.dev.hardware[parent] && !cfg.interfaces[parent]?.switchport;
       if (!ok) return caret(c, a['@if'] as number);
@@ -490,8 +494,10 @@ function buildConfig(kind: DeviceKind): Tree {
   if (sw) {
     t.add('vlan <number:id:1-4094>', HC, (c, a) => {
       const id = a.id as number;
+      if (vtpOf(c.dev).mode === 'client') return void c.out.push('VTP VLAN configuration not allowed when device is in CLIENT mode.');
       if (!c.dev.vlans[id]) {
         c.dev.vlans[id] = { name: `VLAN${String(id).padStart(4, '0')}` };
+        vtpChanged(c);
         commit(c);
       }
       c.s.enterVlan(id);
@@ -502,7 +508,9 @@ function buildConfig(kind: DeviceKind): Tree {
         c.out.push(`%Default VLAN ${id} may not be deleted.`);
         return;
       }
+      if (vtpOf(c.dev).mode === 'client') return void c.out.push('VTP VLAN configuration not allowed when device is in CLIENT mode.');
       delete c.dev.vlans[id];
+      vtpChanged(c);
       commit(c);
     });
     t.add('ip default-gateway <ip:gw>', HC, (c, a) => {
@@ -585,6 +593,7 @@ function buildConfig(kind: DeviceKind): Tree {
   addDhcpDnsGlobal(t);
   addMgmtGlobal(t);
   if (kind === 'router' || kind === 'l3switch') addRoutingGlobal(t);
+  if (isSwitchKind(kind)) addSwitchGlobal(t);
   addConfigNav(t, HC);
   return t;
 }
@@ -806,11 +815,16 @@ function buildInterface(kind: DeviceKind, mode: 'if' | 'subif' | 'range'): Tree 
     }
     commit(c);
   };
-  t.add('shutdown', HI, each((_c, ifc) => void (ifc.shutdown = true)));
+  t.add('shutdown', HI, each((c, ifc) => {
+    ifc.shutdown = true;
+    // shut/no shut is how you bring an err-disabled port back.
+    if (c.dev.errDisabled) delete c.dev.errDisabled[ifc.name];
+  }));
   t.add('no shutdown', HI, each((_c, ifc) => void (ifc.shutdown = false)));
   addAclInterface(t);
   if (kind === 'router') addNatInterface(t);
   if (kind === 'router' || kind === 'l3switch') addRoutingInterface(t);
+  if (isSwitchKind(kind)) addSwitchInterface(t);
   t.add('description <line:text>', HI, each((_c, ifc, a) => void (ifc.description = (a.text as string).slice(0, 240))));
   t.add('no description', HI, each((_c, ifc) => void (ifc.description = null)));
 
@@ -941,6 +955,7 @@ function buildVlanMode(): Tree {
   t.add('name <word:name>', HI, (c, a) => {
     const vlan = c.dev.vlans[c.s.vlanContext!];
     if (vlan) vlan.name = (a.name as string).slice(0, 32);
+    vtpChanged(c);
   });
   t.add('no name', HI, (c) => {
     const id = c.s.vlanContext!;
@@ -1198,6 +1213,8 @@ export class CliSession {
     }
     if (parsed.ok) {
       parsed.node.run!(ctx, parsed.args);
+      // Settings entered on a port-channel apply to its member ports too.
+      if ((this.mode === 'if' || this.mode === 'range') && this.ifContext.some((n) => n.startsWith('Port-channel'))) propagatePortChannel(ctx);
       return;
     }
     if (parsed.error === 'ambiguous') {

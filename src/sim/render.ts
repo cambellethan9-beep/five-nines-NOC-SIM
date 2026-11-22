@@ -2,6 +2,7 @@
 
 import { aclConfigLines } from './acl';
 import { natConfigLines } from './nat';
+import { switchGlobalLines, switchInterfaceLines } from './cli/switchCommands';
 import { dhcpConfigLines } from './iosDhcp';
 import { ageText, bandwidthKbps, delayTens } from './control/common';
 import { interfaceRoutingLines, interfaceTopLines, routerLines } from './control/render';
@@ -71,6 +72,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
   lines.push(`version ${OS_VERSION[device.kind]?.split('(')[0] ?? '15.2'}`);
   lines.push(...timestampLines(device));
   lines.push('no service password-encryption', '!', `hostname ${config.hostname}`, '!');
+  if (isSwitchKind(device.kind)) lines.push(...switchGlobalLines(device));
   const top = loggingTopLines(device);
   if (top.length) lines.push(...top, '!');
   if (config.enableSecret) lines.push(`enable secret 5 ${fakeSecretHash(config.enableSecret)}`, '!');
@@ -115,6 +117,7 @@ export function renderConfig(device: Device, config: DeviceConfig): string[] {
         lines.push(` switchport trunk allowed vlan ${sp.allowedVlans.length ? formatVlanList(sp.allowedVlans) : 'none'}`);
       }
       if (sp.mode !== 'dynamic auto') lines.push(` switchport mode ${sp.mode}`);
+      lines.push(...switchInterfaceLines(ifc));
     } else if (device.kind === 'l3switch' && !ifc.name.startsWith('Vlan') && !ifc.name.startsWith('Loopback')) {
       lines.push(' no switchport');
     }
@@ -243,7 +246,8 @@ export function showInterface(net: Network, device: Device, ifc: InterfaceConfig
         ? 'NetSmart Gigabit Ethernet'
         : 'Fast Ethernet';
   const mac = macOf(device, ifc.name);
-  const lines = [`${ifc.name} is ${status}, line protocol is ${protocol}`];
+  const st = net.state(device.id, ifc.name);
+  const lines = [`${ifc.name} is ${status}, line protocol is ${protocol}${st.err ? ' (err-disabled)' : st.suspended ? ' (suspended)' : ''}`];
   lines.push(ifc.name.startsWith('Loopback') ? `  Hardware is ${kind}` : `  Hardware is ${kind}, address is ${mac} (bia ${mac})`);
   if (ifc.description) lines.push(`  Description: ${ifc.description}`);
   if (ifc.ip && !ifc.switchport) lines.push(`  Internet address is ${formatIp(ifc.ip.address)}/${ifc.ip.prefix}`);
@@ -284,7 +288,7 @@ export function showInterfacesStatus(net: Network, device: Device): string[] {
     if (!ifc.switchport && !device.hardware[ifc.name]) continue;
     if (!device.hardware[ifc.name]) continue;
     const s = net.state(device.id, ifc.name);
-    const status = s.link === 'admin-down' ? 'disabled' : s.protocol === 'up' ? 'connected' : 'notconnect';
+    const status = s.link === 'admin-down' ? 'disabled' : s.err ? 'err-disabled' : s.suspended ? 'suspended' : s.protocol === 'up' ? 'connected' : 'notconnect';
     let vlan = 'routed';
     if (ifc.switchport) vlan = net.operationalMode(device, ifc) === 'trunk' && s.protocol === 'up' ? 'trunk' : String(ifc.switchport.accessVlan);
     const hw = device.hardware[ifc.name];

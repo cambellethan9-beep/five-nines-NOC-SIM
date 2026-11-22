@@ -32,7 +32,7 @@ export const MODELS: Record<string, ModelSpec> = {
     model: 'NS-S3600',
     kind: 'l3switch',
     defaultHostname: 'Switch',
-    ports: [...range('FastEthernet0/', 1, 24, 100), ...range('GigabitEthernet0/', 1, 2, 1000)],
+    ports: [...range('FastEthernet0/', 1, 24, 100), ...range('GigabitEthernet0/', 1, 4, 1000)],
   },
   'NS-PC': { model: 'NS-PC', kind: 'pc', defaultHostname: 'PC', ports: [{ name: 'FastEthernet0', maxSpeed: 100 }] },
   'NS-PRN': { model: 'NS-PRN', kind: 'printer', defaultHostname: 'Printer', ports: [{ name: 'FastEthernet0', maxSpeed: 100 }] },

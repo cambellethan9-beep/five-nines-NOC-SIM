@@ -8,6 +8,7 @@ import type { Device, InterfaceConfig, InterfaceState, Link, LinkEnd } from './t
 import { isHostKind } from './types';
 import type { Ipv4 } from './ip';
 import { logStamp, syslogDelivered } from './mgmt';
+import { computeBundles, computeStp, evaluatePortSecurity, syncVtp, type Bundle, type StpResult } from './l2';
 import { logControlChanges } from './control';
 
 export interface LogEntry {
@@ -33,6 +34,13 @@ export class Network {
   readonly devices = new Map<string, Device>();
   readonly links: Link[] = [];
   readonly logs: LogEntry[] = [];
+  /** Layer 2 results of the last commit (EtherChannel bundles, spanning tree). */
+  bundles: Map<string, Bundle> = new Map();
+  stp: StpResult = { vlans: new Map(), blocked: new Set(), bpduguard: [], storms: new Set() };
+  /** Ports whose frames port security drops (restrict/protect). */
+  private dropped = new Set<string>();
+  private stormDomains = new Set<string>();
+  private l2Events = new Set<string>();
   /** Bumped on every commit; routing protocol results are cached per version. */
   version = 0;
   /** Where devices' syslog has to arrive for the NOC to see it (the NOC PC). null = see everything. */
@@ -158,18 +166,84 @@ export class Network {
   commit(options: { silent?: boolean } = {}): void {
     const previous = this.states;
     this.states = new Map();
+    const events: string[] = [];
     for (const device of this.devices.values()) {
       for (const ifc of Object.values(device.running.interfaces)) {
-        if (!ifc.name.startsWith('Vlan')) this.states.set(key(device.id, ifc.name), this.computePhysical(device, ifc));
+        if (!ifc.name.startsWith('Vlan') && !ifc.name.startsWith('Port-channel')) this.states.set(key(device.id, ifc.name), this.computePhysical(device, ifc));
       }
     }
-    // SVIs depend on the state of the switchports in their VLAN, so they go second.
+    // VLAN databases (VTP) depend on which trunks are up.
+    syncVtp(this);
+    // Port security can err-disable ports before anything is forwarded.
+    const psec = evaluatePortSecurity(this);
+    for (const ev of psec.events) {
+      events.push(`${ev.device}|%PORT_SECURITY-2-PSECURE_VIOLATION: Security violation occurred, caused by MAC address ${ev.mac} on port ${ev.iface}.`);
+      if (ev.shutdown) this.errDisable(ev.device, ev.iface, 'psecure-violation', events);
+    }
+    this.dropped = new Set([...psec.dropped].filter((k) => !this.devices.get(k.split('|')[0])?.errDisabled?.[k.split('|')[1]]));
+    // EtherChannel: bundle members, then the port-channel interfaces.
+    this.bundles = computeBundles(this);
+    for (const b of this.bundles.values()) {
+      for (const m of b.suspended) {
+        const st = this.state(b.device, m);
+        this.states.set(key(b.device, m), { ...st, protocol: 'down', suspended: true });
+        events.push(`${b.device}|%EC-5-CANNOT_BUNDLE2: ${m} is not compatible with ${b.po} and will be suspended (vlan mask is different)`);
+      }
+      for (const m of b.bundled) events.push(`${b.device}|%EC-5-BUNDLE: Interface ${m} joined port-channel ${b.po}`);
+      const po = this.device(b.device).running.interfaces[b.po];
+      if (po) this.states.set(key(b.device, b.po), po.shutdown ? { link: 'admin-down', protocol: 'down' } : b.bundled.length ? { link: 'up', protocol: 'up' } : { link: 'down', protocol: 'down' });
+    }
+    for (const device of this.devices.values()) {
+      for (const ifc of Object.values(device.running.interfaces)) {
+        if (ifc.name.startsWith('Port-channel') && !this.states.has(key(device.id, ifc.name))) this.states.set(key(device.id, ifc.name), { link: ifc.shutdown ? 'admin-down' : 'down', protocol: 'down' });
+      }
+    }
+    // SVIs depend on the state of the switchports in their VLAN.
     for (const device of this.devices.values()) {
       for (const ifc of Object.values(device.running.interfaces)) {
         if (ifc.name.startsWith('Vlan')) this.states.set(key(device.id, ifc.name), this.computeSvi(device, ifc));
       }
     }
+    // Spanning tree; BPDU guard trips err-disable ports, which changes the tree once more.
+    let stp = computeStp(this, this.bundles, this.dropped);
+    if (stp.bpduguard.length) {
+      for (const g of stp.bpduguard) {
+        events.push(`${g.device}|%SPANTREE-2-BLOCK_BPDUGUARD: Received BPDU on port ${g.port} with BPDU Guard enabled. Disabling port.`);
+        this.errDisable(g.device, g.port, 'bpduguard', events);
+      }
+      stp = computeStp(this, this.bundles, this.dropped);
+    }
+    this.stp = stp;
+    for (const [vlan, bridges] of stp.vlans) {
+      for (const b of bridges.values()) {
+        for (const p of b.ports) {
+          if (p.inconsistent === 'ROOT_Inc') events.push(`${b.device}|%SPANTREE-2-ROOTGUARD_BLOCK: Root guard blocking port ${p.name} on VLAN${String(vlan).padStart(4, '0')}.`);
+          if (p.inconsistent === 'LOOP_Inc') events.push(`${b.device}|%SPANTREE-2-LOOPGUARD_BLOCK: Loop guard blocking port ${p.name} on VLAN${String(vlan).padStart(4, '0')}.`);
+        }
+      }
+    }
+    for (const s of stp.storms) {
+      const [dev, vlan] = s.split('|');
+      const d = this.device(dev);
+      const up = Object.values(d.running.interfaces).filter((i) => i.switchport && d.hardware[i.name] && this.isUp(dev, i.name) && this.operationalMode(d, i) === 'trunk' && this.forwards(dev, i.name, Number(vlan)));
+      // Prefer two forwarding trunks to the same neighbor: that's the loop.
+      const byPeer = new Map<string, string[]>();
+      for (const i of up) {
+        const p = this.peerOf(dev, i.name)?.device ?? '';
+        byPeer.set(p, [...(byPeer.get(p) ?? []), shortIfName(i.name)]);
+      }
+      const trunks = [...byPeer.values()].find((l) => l.length >= 2) ?? up.map((i) => shortIfName(i.name));
+      if (trunks.length >= 2) events.push(`${dev}|%SW_MATM-4-MACFLAP_NOTIF: Host ${this.stormHostMac(dev, Number(vlan))} in vlan ${vlan} is flapping between port ${trunks[0]} and port ${trunks[1]}`);
+    }
     this.computeDomains();
+    // Log what's new since the last commit (IOS logs these once, when they happen).
+    const fresh = new Set(events);
+    for (const e of fresh) {
+      if (this.l2Events.has(e)) continue;
+      const i = e.indexOf('|');
+      this.log(e.slice(0, i), e.slice(i + 1));
+    }
+    this.l2Events = new Set([...fresh].filter((e) => !e.includes('%PM-4-ERR_DISABLE') && !e.includes('BLOCK_BPDUGUARD')));
     this.expireArp();
     this.version++;
     if (!options.silent) {
@@ -207,6 +281,8 @@ export class Network {
   private computePhysical(device: Device, ifc: InterfaceConfig): InterfaceState {
     if (ifc.shutdown) return { link: 'admin-down', protocol: 'down' };
     if (!this.isOnline(device)) return { link: 'down', protocol: 'down' };
+    const err = device.errDisabled?.[ifc.name];
+    if (err) return { link: 'down', protocol: 'down', err: err.cause };
     if (ifc.name.startsWith('Loopback')) return { link: 'up', protocol: 'up' };
     const parent = parentIfName(ifc.name);
     if (parent) {
@@ -268,13 +344,14 @@ export class Network {
     if (ifc.switchport) {
       const sp = ifc.switchport;
       if (this.operationalMode(device, ifc) === 'access') {
-        if (device.vlans[sp.accessVlan]) result.set('u', vlanNode(device.id, sp.accessVlan));
+        if (device.vlans[sp.accessVlan] && this.forwards(device.id, ifc.name, sp.accessVlan)) result.set('u', vlanNode(device.id, sp.accessVlan));
         return result;
       }
       // ISL tags every VLAN (it has no native VLAN); 802.1Q sends the native VLAN untagged.
       // An ISL end and a dot1Q end share no channels, so a mismatched trunk passes nothing.
       const isl = device.kind === 'l3switch' && sp.trunkEncapsulation === 'isl';
       for (const vlan of this.vlansCarried(device, ifc)) {
+        if (!this.forwards(device.id, ifc.name, vlan)) continue;
         result.set(isl ? `i${vlan}` : vlan === sp.nativeVlan ? 'u' : `t${vlan}`, vlanNode(device.id, vlan));
       }
       return result;
@@ -323,6 +400,59 @@ export class Network {
     }
     this.domains = new Map();
     for (const node of parent.keys()) this.domains.set(node, find(node));
+    this.stormDomains = new Set();
+    for (const s of this.stp.storms) {
+      const [dev, vlan] = s.split('|');
+      this.stormDomains.add(find(vlanNode(dev, Number(vlan))));
+    }
+  }
+
+  /** Is this broadcast domain melting down in a broadcast storm? */
+  isStorming(domain: string): boolean {
+    return this.stormDomains.has(domain);
+  }
+
+  /** Puts a port in err-disable (port security, BPDU guard). */
+  errDisable(deviceId: string, iface: string, cause: string, events: string[]): void {
+    const d = this.device(deviceId);
+    if (d.errDisabled?.[iface]) return;
+    (d.errDisabled ??= {})[iface] = { cause, at: this.time };
+    events.push(`${deviceId}|%PM-4-ERR_DISABLE: ${cause} error detected on ${shortIfName(iface)}, putting ${shortIfName(iface)} in err-disable state`);
+    this.states.set(key(deviceId, iface), { link: 'down', protocol: 'down', err: cause });
+  }
+
+  /** `errdisable recovery`: re-enables ports whose cause has recovery on, after the interval. Call each tick. */
+  recoverErrDisabled(): void {
+    let changed = false;
+    for (const d of this.devices.values()) {
+      const cfg = d.running.errdisable;
+      if (!cfg || !d.errDisabled) continue;
+      for (const [iface, e] of Object.entries(d.errDisabled)) {
+        if (!(cfg.causes.includes('all') || cfg.causes.includes(e.cause))) continue;
+        if (this.time - e.at < cfg.interval * 1000) continue;
+        delete d.errDisabled[iface];
+        this.log(d.id, `%PM-4-ERR_RECOVER: Attempting to recover from ${e.cause} err-disable state on ${shortIfName(iface)}`);
+        changed = true;
+      }
+    }
+    if (changed) this.commit();
+  }
+
+  private stormHostMac(deviceId: string, vlan: number): string {
+    const d = this.device(deviceId);
+    for (const ifc of Object.values(d.running.interfaces)) {
+      if (ifc.switchport?.accessVlan !== vlan) continue;
+      const peer = this.peerOf(deviceId, ifc.name);
+      if (peer) return this.device(peer.device).hardware[peer.iface]?.mac ?? d.baseMac;
+    }
+    return d.baseMac;
+  }
+
+  /** Does this switchport forward frames for this VLAN (not STP-blocked, suspended or dropped)? */
+  forwards(deviceId: string, iface: string, vlan: number): boolean {
+    if (this.stp.blocked.has(`${deviceId}|${iface}|${vlan}`)) return false;
+    if (this.dropped.has(`${deviceId}|${iface}`)) return false;
+    return !this.state(deviceId, iface).suspended;
   }
 
   /** Broadcast domain ID of an L3 interface (routed port, subinterface, SVI or host NIC). */

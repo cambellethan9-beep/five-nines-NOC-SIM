@@ -142,10 +142,10 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] **NTP:** client/server, `show ntp status`, clocks finally leave 1993
 - [x] **SNMP:** communities, v2c vs v3; devices only appear in Monitor once configured
 - [x] **OSPFv2:** single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
-- [ ] **STP (PVST+):** root bridge, PortFast, BPDU guard, loops and broadcast storms
-- [ ] **Port security:** max MACs, sticky, violation modes, err-disabled, `errdisable recovery`
-- [ ] **EtherChannel:** LACP/PAgP, mismatched members, suspended ports
-- [ ] **VTP:** modes, domain, the revision-number wipe
+- [x] **STP (PVST+):** root bridge, PortFast, BPDU guard, loops and broadcast storms
+- [x] **Port security:** max MACs, sticky, violation modes, err-disabled, `errdisable recovery`
+- [x] **EtherChannel:** LACP/PAgP, mismatched members, suspended ports
+- [x] **VTP:** modes, domain, the revision-number wipe
 - [ ] Hardening: `service password-encryption`, `exec-timeout`, `login block-for`, login/exec banners, `security passwords min-length`
 - [ ] Config backup and restore: `copy run tftp`, `archive`, `configure replace`
 
@@ -217,8 +217,15 @@ error messages, the faults it can cause, and ticket templates that use it.
            Tickets: passive-interface default, hello mismatch, area mismatch, default not originated, BGP migration
          - Multi-site (Riverside) stays locked by rank; EIGRP/RIP/multi-area designs come into play there
          Originally planned: OSPFv2 single and multi-area, neighbor states, area/timer/MTU mismatch, passive interfaces, router IDs, cost, DR/BDR
-  8. [ ] STP (PVST+, PortFast, BPDU guard), port security (sticky, violations, err-disabled, recovery), EtherChannel
-         (LACP/PAgP), VTP (modes, domain, the revision wipe)
+  8. [x] Switching (`src/sim/l2.ts`): PVST+/rapid-pvst root election by priority and MAC, speed-based costs, roles
+         and states, PortFast (+ default), BPDU guard (err-disable), BPDU filter, root guard (ROOT_Inc), loop guard
+         (LOOP_Inc), broadcast storms with MACFLAP logs when a loop forwards; port security (maximum, sticky, static,
+         shutdown/restrict/protect, `clear port-security`), err-disable with shut/no shut and `errdisable recovery`;
+         EtherChannel on/LACP/PAgP with IOS pairing rules, suspended members, Po config propagation, STP sees one link;
+         VTP server/client/transparent/off, domain/password/version, revision wipe. Office: core is root, PortFast and
+         BPDU guard on access switches, sticky port security on the 2nd floor, VTP transparent, a spare (shut) second
+         uplink core Gi0/3 to CR-ACC1 Gi0/2. Tickets: storm via bpdufilter (expert), desk switch vs BPDU guard,
+         loaner PC vs port security, LACP uplink request (hard), VTP wipe (expert)
   9. [ ] Duplex-mismatch errors (CRC, late collisions), `show mac address-table`, `show interfaces counters errors`,
          password hardening (`service password-encryption`, `exec-timeout`, `login block-for`, banners), config backup
          and restore (`copy run tftp`, `archive`, `configure replace`)

@@ -48,6 +48,12 @@ export interface InterfaceConfig {
   ipMtu?: number;
   /** `ip ospf ...` settings. */
   ospf?: InterfaceOspf;
+  /** `spanning-tree ...` on the port. */
+  stp?: PortStp;
+  /** `switchport port-security ...`. */
+  portSecurity?: PortSecurity;
+  /** `channel-group N mode ...`. */
+  channelGroup?: { id: number; mode: ChannelMode };
 }
 
 export interface StaticRoute {
@@ -106,6 +112,10 @@ export interface DeviceConfig {
   dhcpPools?: Record<string, IosDhcpPool>;
   dhcpExcluded?: [Ipv4, Ipv4][];
   serviceDhcp?: boolean;
+  /** Spanning tree, errdisable recovery and VTP (absent = IOS defaults). */
+  stp?: SwitchStp;
+  errdisable?: { causes: string[]; interval: number };
+  vtp?: VtpConfig;
   /** Dynamic routing: OSPF, EIGRP, RIP and BGP. */
   routing?: RoutingConfig;
   /** Syslog, timestamps, SNMP and NTP (absent = IOS defaults). */
@@ -166,6 +176,13 @@ export interface Device {
   /** IOS DHCP bindings per pool (MAC -> address) and detected conflicts. */
   dhcpBindings?: Record<string, Record<string, Ipv4>>;
   dhcpConflicts?: { ip: Ipv4; at: number }[];
+  /** Err-disabled ports and why (cleared by shutdown/no shutdown or errdisable recovery). */
+  errDisabled?: Record<string, { cause: string; at: number }>;
+  /** Port security: dynamically learned MACs and violation counters. */
+  psecLearned?: Record<string, string[]>;
+  psecViolations?: Record<string, { count: number; lastMac: string }>;
+  /** VTP configuration revision of the VLAN database. */
+  vtpRevision?: number;
   /** `clock set`: offset from true time, and when it was set (cleared by a reload). */
   clockOffset?: number;
   clockSetAt?: number;
@@ -251,6 +268,49 @@ export type LinkStatus = 'up' | 'down' | 'admin-down';
 export interface InterfaceState {
   link: LinkStatus;
   protocol: 'up' | 'down';
+  /** Why the port is err-disabled, or an EtherChannel member's flag. */
+  err?: string;
+  /** EtherChannel member that couldn't bundle. */
+  suspended?: boolean;
+}
+
+export type ChannelMode = 'on' | 'active' | 'passive' | 'desirable' | 'auto';
+
+export interface PortStp {
+  portfast?: 'enable' | 'trunk' | 'disable';
+  bpduguard?: 'enable' | 'disable';
+  bpdufilter?: 'enable' | 'disable';
+  guard?: 'root' | 'loop' | 'none';
+  cost?: number;
+  priority?: number;
+}
+
+export interface PortSecurity {
+  enabled: boolean;
+  max: number;
+  violation: 'shutdown' | 'restrict' | 'protect';
+  sticky: boolean;
+  macs: string[];
+  stickyMacs: string[];
+}
+
+export interface SwitchStp {
+  mode: 'pvst' | 'rapid-pvst';
+  /** `spanning-tree vlan <list> priority N` entries, in order. */
+  priorities: { vlans: number[]; priority: number }[];
+  /** `no spanning-tree vlan <list>`. */
+  disabled: number[];
+  portfastDefault: boolean;
+  bpduguardDefault: boolean;
+  bpdufilterDefault: boolean;
+  loopguardDefault: boolean;
+}
+
+export interface VtpConfig {
+  mode: 'server' | 'client' | 'transparent' | 'off';
+  domain: string | null;
+  password: string | null;
+  version: 1 | 2 | 3;
 }
 
 export function isSwitchKind(kind: DeviceKind): boolean {

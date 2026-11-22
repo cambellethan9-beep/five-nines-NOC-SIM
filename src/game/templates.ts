@@ -14,6 +14,7 @@ import { ACL_TEMPLATES } from './ticketsAcl';
 import { NAT_TEMPLATES } from './ticketsNat';
 import { GUEST_TICKETS } from './ticketsGuest';
 import { ROUTING_TICKETS } from './ticketsRouting';
+import { SWITCHING_TICKETS } from './ticketsSwitching';
 import { flushDns, resolve } from '../sim/dns';
 import {
   FS01, INTERNET, NIC, floorOf, freePeople, freePorts, person, pickPerson, portLabel, reaches, userIncident,
@@ -704,6 +705,7 @@ export const TEMPLATES: TicketTemplate[] = [
   ...NAT_TEMPLATES,
   ...GUEST_TICKETS,
   ...ROUTING_TICKETS,
+  ...SWITCHING_TICKETS,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

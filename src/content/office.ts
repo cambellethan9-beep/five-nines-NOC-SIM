@@ -386,6 +386,22 @@ export function buildOffice(seed: number | string = 'cedar-ridge'): Office {
   net.connect('internet', nic(internet), 'isp', 'GigabitEthernet0/1');
   net.connect('isp', 'GigabitEthernet0/0', 'rtr1', 'GigabitEthernet0/1');
   net.connect('rtr1', 'GigabitEthernet0/0', 'core1', 'FastEthernet0/24');
+  // A second uplink to the 1st floor, cabled for an EtherChannel that never got finished. Shut on the core side.
+  net.connect('core1', 'GigabitEthernet0/3', 'acc1', 'GigabitEthernet0/2');
+  trunk(core, 'GigabitEthernet0/3', 'Spare uplink to CR-ACC1 Gi0/2 (EtherChannel, never finished)');
+  core.running.interfaces['GigabitEthernet0/3'].shutdown = true;
+  trunk(net.device('acc1'), 'GigabitEthernet0/2', 'Spare uplink to CR-CORE1 Gi0/3');
+  // Switching hygiene the predecessor did set up: VTP transparent, the core as STP root, PortFast and BPDU guard
+  // on access ports, and sticky port security on the 2nd floor (the audit team asked for it).
+  for (const id of ['core1', 'acc1', 'acc2']) {
+    const d = net.device(id);
+    d.running.vtp = { mode: 'transparent', domain: 'CEDAR', password: null, version: 1 };
+    d.running.stp = { mode: 'pvst', priorities: [], disabled: [], portfastDefault: id !== 'core1', bpduguardDefault: id !== 'core1', bpdufilterDefault: false, loopguardDefault: false };
+  }
+  core.running.stp!.priorities = [{ vlans: [1, ...VLANS.map((v) => v.id)], priority: 24576 }];
+  for (let i = 1; i <= 10; i++) {
+    net.device('acc2').running.interfaces[`FastEthernet0/${i}`].portSecurity = { enabled: true, max: 1, violation: 'shutdown', sticky: true, macs: [], stickyMacs: [] };
+  }
   // A spare run between the core and the router, never configured. Useful for router-on-a-stick.
   net.connect('rtr1', 'GigabitEthernet0/2', 'core1', 'FastEthernet0/23');
   core.running.interfaces['FastEthernet0/23'].description = 'Spare to CR-RTR1 Gi0/2';

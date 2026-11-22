@@ -13,6 +13,7 @@ export const IF_TYPES: IfType[] = [
   { full: 'GigabitEthernet', cdp: 'Gig', short: 'Gi' },
   { full: 'Vlan', cdp: 'Vla', short: 'Vl' },
   { full: 'Loopback', cdp: 'Loo', short: 'Lo' },
+  { full: 'Port-channel', cdp: 'Por', short: 'Po' },
 ];
 
 export interface ParsedIfName {

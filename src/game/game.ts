@@ -301,6 +301,7 @@ export class Game {
       this.net.advance(step);
       this.ambient.update();
       this.dhcp.update(this.net);
+      this.net.recoverErrDisabled();
       if (this.started) {
         this.queue.update();
         this.checkServices(step);

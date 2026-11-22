@@ -179,6 +179,8 @@ export interface Endpoint {
 /** Finds who answers an ARP request for `ip` in the broadcast domain of device/iface. */
 function arpResolve(net: Network, deviceId: string, iface: string, ip: Ipv4, allowProxy: boolean): Endpoint | null {
   const domain = net.domainOf(deviceId, iface);
+  // A broadcast storm drowns everything in the domain: nothing gets an ARP reply.
+  if (net.isStorming(domain)) return null;
   let proxy: Endpoint | null = null;
   for (const other of net.devices.values()) {
     if (!net.isOnline(other)) continue;
