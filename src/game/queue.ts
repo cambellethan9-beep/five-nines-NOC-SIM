@@ -214,7 +214,12 @@ export class TicketQueue {
       }
       if (t.status === 'escalated' && t.seniorAt !== null && now >= t.seniorAt) {
         // After a false resolve at Tier 1, Owen takes it over. No points for you.
-        t.draft.fix();
+        if (!this.seniorFix(t)) {
+          t.seniorAt = now + 10 * MIN;
+          const text = "Fixed what I could find, but people on this ticket are still down, so there's something else going on. Still on it.";
+          t.activity.push({ t: now, who: 'senior', name: 'Owen Price', text });
+          continue;
+        }
         t.status = 'senior-resolved';
         t.resolvedAt = now;
         t.resolvedBy = 'owen';
@@ -398,6 +403,17 @@ export class TicketQueue {
     return t;
   }
 
+  /** Hooks from the game: a senior's tidy-up after a fix, and how many people are still affected by anything. */
+  onSeniorCleanup?: () => void;
+  affectedNow?: () => number;
+
+  /** A coworker applies the fix, tidies up like a senior would, then checks it really worked. */
+  private seniorFix(t: Ticket): boolean {
+    t.draft.fix();
+    this.onSeniorCleanup?.();
+    return t.draft.check();
+  }
+
   /** A senior fixes and closes everything open or still unreported (no points either way). */
   closeAllBySenior(text: string): void {
     const now = this.net.time;
@@ -499,11 +515,22 @@ export class TicketQueue {
       this.onCoworkerMessage?.(c.id, `${t.id}: ${text}`);
       return;
     }
-    t.draft.fix();
+    if (!this.seniorFix(t)) {
+      // They fixed what they found, but the people on this ticket are still down: be honest and hand it back.
+      t.status = 'in-progress';
+      t.escalation = null;
+      const text = `I fixed what I found: ${t.draft.explain} But people on this ticket are still having problems, so something else is going on. Handing it back to you.`;
+      t.activity.push({ t: now, who: 'senior', name: c.name, text });
+      this.onCoworkerMessage?.(c.id, `${t.id}: ${text}`);
+      return;
+    }
     t.status = 'senior-resolved';
     t.resolvedAt = now;
     t.resolvedBy = c.id;
-    t.activity.push({ t: now, who: 'senior', name: c.name, text: `Fixed. ${t.draft.explain}` });
+    const stillDown = this.affectedNow?.() ?? 0;
+    const elsewhere = stillDown > 0 ? ` Heads up: ${stillDown} ${stillDown === 1 ? 'person is' : 'people are'} still having problems, but that's something else, not this ticket.` : '';
+    t.activity.push({ t: now, who: 'senior', name: c.name, text: `Fixed and checked. ${t.draft.explain}${elsewhere}` });
+    if (elsewhere) this.onCoworkerMessage?.(c.id, `${t.id} is fixed.${elsewhere}`);
     if (t.draft.kind === 'incident') {
       t.notifiedAt = now;
       t.activity.push({ t: now, who: 'senior', name: c.name, text: `Let ${t.draft.reporter.name} know it's working again.` });

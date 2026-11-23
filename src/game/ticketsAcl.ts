@@ -1,6 +1,7 @@
 // Tickets caused by access lists. The classic symptoms: ping works but the app doesn't, a wildcard written as
 // a subnet mask, and a vty access-class that locks the NOC out of a switch.
 
+import { canMakeChange } from './access';
 import { evaluate, type Acl } from '../sim/acl';
 import { parseIp } from '../sim/ip';
 import type { Network } from '../sim/network';
@@ -35,7 +36,7 @@ function otherStaff(net: Network, people: { pcId: string }[], pcId: string): str
 const webFilter: TicketTemplate = {
   id: 'acl-web-filter',
   difficulty: 'hard',
-  canStart: (ctx) => !ctx.activeTemplates.has('acl-web-filter') && !ctx.net.device('core1').running.interfaces['Vlan10'].accessGroup?.in && freePeople(ctx).length > 1,
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'core1') && !ctx.activeTemplates.has('acl-web-filter') && !ctx.net.device('core1').running.interfaces['Vlan10'].accessGroup?.in && freePeople(ctx).length > 1,
   plan: (ctx) => {
     const pcId = ctx.rng.pick(freePeople(ctx)).pcId;
     return { pcId, other: otherStaff(ctx.net, freePeople(ctx), pcId), variant: ctx.rng.int(0, 1) };
@@ -96,7 +97,7 @@ const webFilter: TicketTemplate = {
 const printerWildcard: TicketTemplate = {
   id: 'acl-printer-wildcard',
   difficulty: 'moderate',
-  canStart: (ctx) =>
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'core1') &&
     !ctx.activeTemplates.has('acl-printer-wildcard') &&
     !ctx.activeTemplates.has('printer-vlan') &&
     !ctx.net.device('core1').running.interfaces['Vlan30'].accessGroup?.out &&

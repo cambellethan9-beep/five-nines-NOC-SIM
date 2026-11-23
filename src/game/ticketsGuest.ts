@@ -1,6 +1,7 @@
 // Tickets on the guest VLAN, all rooted in CR-CORE1's IOS DHCP pool: no default-router, a pool filled by
 // infinite leases, and guest DNS pointed at an internal server the guest ACL blocks.
 
+import { canMakeChange } from './access';
 import { dhcpRequest } from '../sim/dhcp';
 import { flushDns, resolve } from '../sim/dns';
 import { parseIp } from '../sim/ip';
@@ -61,7 +62,7 @@ const guestTicket = (
 ): TicketTemplate => ({
   id,
   difficulty,
-  canStart: (ctx) => !GUEST_TEMPLATES.some((t) => ctx.activeTemplates.has(t)) && !ctx.busyPcs.has(CONF) && freePeople(ctx).length > 0 && poolIntact(ctx.net),
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'core1') && !GUEST_TEMPLATES.some((t) => ctx.activeTemplates.has(t)) && !ctx.busyPcs.has(CONF) && freePeople(ctx).length > 0 && poolIntact(ctx.net),
   plan: (ctx) => ({ pcId: ctx.rng.pick(freePeople(ctx)).pcId, variant: ctx.rng.int(0, spec.descriptions.length - 1) }),
   build: (env, params) => {
     const net = env.net;

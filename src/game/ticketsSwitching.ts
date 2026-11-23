@@ -1,6 +1,7 @@
 // Tickets from switching: a loop through a filtered spare uplink, a desk switch tripping BPDU guard, a loaner PC
 // tripping port security, the uplink EtherChannel request, and the VTP revision wipe.
 
+import { canMakeChange } from './access';
 import type { Network } from '../sim/network';
 import type { Device } from '../sim/types';
 import { reachService } from './services';
@@ -21,7 +22,7 @@ function errDisable(net: Network, sw: Device, iface: string, cause: string): voi
 const stpLoop: TicketTemplate = {
   id: 'stp-loop',
   difficulty: 'expert',
-  canStart: (ctx) => free(ctx) && ctx.net.device('core1').running.interfaces['GigabitEthernet0/3']?.shutdown === true && onFloor(ctx, 'acc1').length > 0 && onFloor(ctx, 'acc2').length > 0,
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'core1') && free(ctx) && ctx.net.device('core1').running.interfaces['GigabitEthernet0/3']?.shutdown === true && onFloor(ctx, 'acc1').length > 0 && onFloor(ctx, 'acc2').length > 0,
   plan: (ctx) => ({ pcId: ctx.rng.pick(onFloor(ctx, 'acc1')).pcId, other: ctx.rng.pick(onFloor(ctx, 'acc2')).pcId, variant: ctx.rng.int(0, 1) }),
   build: (env, params) => {
     const net = env.net;
@@ -210,7 +211,7 @@ const etherchannel: TicketTemplate = {
 const vtpWipe: TicketTemplate = {
   id: 'vtp-wipe',
   difficulty: 'expert',
-  canStart: (ctx) =>
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'acc2') &&
     free(ctx) &&
     ['core1', 'acc1', 'acc2'].every((id) => ctx.net.device(id).running.vtp?.mode === 'transparent' && ctx.net.device(id).vlans[30] && ctx.net.device(id).vlans[40]) &&
     onFloor(ctx, 'acc1').length > 0 &&

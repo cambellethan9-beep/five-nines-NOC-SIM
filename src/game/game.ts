@@ -1,6 +1,7 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { dhcpRequest } from '../sim/dhcp';
 import { LATEST_PRINT_DRIVER, LATEST_PRINTER_FIRMWARE, type CableInHand } from './physical';
 import { migratePlacement, PLACEMENT_RANK, placedRank, type PlacementState } from './placement';
 import { Achievements, type AchievementState } from './achievements';
@@ -163,6 +164,16 @@ export class Game {
       return { id: t.id, hint: t.draft.hint };
     }, () => new Set(this.waitingUsers));
     this.queue.onCoworkerMessage = (id, text) => this.chat.coworkerSay(id, text);
+    // A senior who fixes something renews any PC that gave up on DHCP while it was broken.
+    this.queue.onSeniorCleanup = () => {
+      for (const d of this.net.devices.values()) {
+        if (d.hostNet?.dhcp && d.powered && (d.hostNet.apipa || !d.hostNet.lease)) dhcpRequest(this.net, d.id);
+      }
+    };
+    this.queue.affectedNow = () => {
+      this.health = serviceHealth(this.net, this.office);
+      return this.health.affectedUsers;
+    };
     this.queue.onOpened = (t, faultAt) => {
       if (t.draft.kind !== 'incident') return;
       const parent = this.incidents.autoParent(faultAt);

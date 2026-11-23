@@ -1,5 +1,6 @@
 // Tickets from dynamic routing at HQ (OSPF between CR-CORE1 and CR-RTR1), plus the BGP change request.
 
+import { canMakeChange } from './access';
 import { controlPlane } from '../sim/control';
 import { parseIp } from '../sim/ip';
 import type { Network } from '../sim/network';
@@ -34,7 +35,7 @@ const outage = (
 ): TicketTemplate => ({
   id,
   difficulty,
-  canStart: (ctx) => !ROUTING.some((t) => ctx.activeTemplates.has(t)) && !ctx.activeTemplates.has('default-route') && ospfHealthy(ctx.net) && freePeople(ctx).length > 1,
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', id === 'ospf-passive-default' ? 'core1' : 'rtr1') && !ROUTING.some((t) => ctx.activeTemplates.has(t)) && !ctx.activeTemplates.has('default-route') && ospfHealthy(ctx.net) && freePeople(ctx).length > 1,
   plan: (ctx) => {
     const pcId = ctx.rng.pick(freePeople(ctx)).pcId;
     return { pcId, other: otherStaff(ctx.net, freePeople(ctx), pcId), variant: ctx.rng.int(0, spec.descriptions.length - 1) };

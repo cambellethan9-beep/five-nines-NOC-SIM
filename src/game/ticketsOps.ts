@@ -1,6 +1,7 @@
 // Operations tickets: a duplex mismatch, hunting an unknown device down by its MAC address, getting config backups
 // onto the TFTP server, and a security audit of the internet-facing router.
 
+import { canMakeChange } from './access';
 import { createDevice } from '../sim/devices';
 import { dhcpRequest } from '../sim/dhcp';
 import { configText } from '../sim/backup';
@@ -17,7 +18,7 @@ const SERVERS = [
 const duplex: TicketTemplate = {
   id: 'duplex-mismatch',
   difficulty: 'moderate',
-  canStart: (ctx) =>
+  canStart: (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'core1') &&
     !ctx.activeTemplates.has('duplex-mismatch') &&
     !ctx.activeTemplates.has('fs-speed') &&
     SERVERS.every((s) => !ctx.net.duplexMismatch('core1', s.port) && ctx.net.isUp('core1', s.port)) &&

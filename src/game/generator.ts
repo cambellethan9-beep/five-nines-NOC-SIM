@@ -6,6 +6,7 @@
 import type { Person } from '../content/office';
 import { dhcpRequest } from '../sim/dhcp';
 import type { Rng } from '../sim/rng';
+import { canMakeChange } from './access';
 import { faultById, FAULTS, type Fault, type Site } from './faults';
 import type { Difficulty, Priority } from './scoring';
 import { brokenServices } from './services';
@@ -26,7 +27,7 @@ const ACTORS = [
   { user: 'jreyes', ip: '10.10.99.23', who: 'Jordan' },
   { user: 'dlindqvist', ip: '10.10.99.21', who: 'the contractor (dlindqvist)' },
   { user: 'msp-secops', ip: '10.10.99.27', who: "the MSP's security team" },
-  { user: 'tbrennan', ip: '10.10.99.30', who: 'Tom Brennan, the office manager, who still has an admin login' },
+  { user: 'tbrennan', ip: '10.10.99.30', who: 'Tom Brennan, the office manager, who knows the shared admin password' },
 ];
 
 /** Plausible guesses users make that have nothing to do with the real cause. */
@@ -68,7 +69,12 @@ export function planGenerated(ctx: TemplateContext, wanted: Difficulty, rankInde
   const rng = ctx.rng;
   const people = freePeople(ctx).map((p) => p.pcId);
   if (!people.length) return null;
-  const options = FAULTS.map((f) => ({ f, sites: f.sites(ctx.net, ctx.office, people) })).filter((x) => x.sites.length);
+  // Config changes need someone who can log in. Once outsiders are locked out, only Jordan makes changes, and he
+  // rarely breaks things, so config faults get much less common.
+  const outsidersIn = (dev: string) => ACTORS.some((a) => a.user !== 'jreyes' && canMakeChange(ctx.net, a.user, dev));
+  const options = FAULTS.map((f) => ({ f, sites: f.sites(ctx.net, ctx.office, people) }))
+    .map((x) => ({ ...x, sites: x.f.configOn ? x.sites.filter((s) => outsidersIn(x.f.configOn!(s)) || rng.chance(0.3)) : x.sites }))
+    .filter((x) => x.sites.length);
   const primary = pickWeighted(rng, options.map((x) => ({ item: x, weight: x.f.weight * closeness(x.f.difficulty, wanted) })));
   if (!primary) return null;
   const site = rng.pick(primary.sites);
@@ -94,7 +100,11 @@ export function planGenerated(ctx: TemplateContext, wanted: Difficulty, rankInde
   const diff = ORDER[Math.min(ORDER.length - 1, hardest + (atoms.length > 1 ? 1 : 0))];
   const herring = rankIndex >= 2 && rng.chance(0.4) ? rng.int(0, HERRINGS.length - 1) : -1;
   const hasConfig = atoms.some((a) => faultById(a.id).configOn);
-  const actor = hasConfig && rng.chance(0.5) ? rng.int(0, ACTORS.length - 1) : -1;
+  // Whoever made the change must still be able to log in to every device it touched.
+  const devices = atoms.map((a) => faultById(a.id).configOn?.(a.site)).filter((d): d is string => !!d);
+  const able = ACTORS.map((a, i) => ({ a, i })).filter(({ a }) => devices.every((d) => canMakeChange(ctx.net, a.user, d)));
+  const outsiders = able.filter(({ a }) => a.user !== 'jreyes');
+  const actor = !hasConfig ? -1 : outsiders.length && rng.chance(0.75) ? rng.pick(outsiders).i : (able.find(({ a }) => a.user === 'jreyes')?.i ?? 0);
   return { atoms: JSON.stringify(atoms), pcId, diff, herring, actor, variant: rng.int(0, 2) };
 }
 
@@ -199,7 +209,6 @@ function buildGenerated(env: Env, params: Params): TicketDraft {
         f.inject(net, a.site);
         const dev = f.configOn?.(a.site);
         if (dev && actor) net.log(dev, `%SYS-5-CONFIG_I: Configured from console by ${actor.user} on vty0 (${actor.ip})`);
-        else if (dev) net.log(dev, '%SYS-5-CONFIG_I: Configured from console by nocadmin on vty0 (10.10.99.50)');
       }
       params.atoms = JSON.stringify(list); // sites now hold the original values for fix()
       net.commit();

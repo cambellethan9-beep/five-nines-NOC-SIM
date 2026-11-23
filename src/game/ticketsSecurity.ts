@@ -2,6 +2,7 @@
 // ARP inspection (and the outages they cause when done naively), a rogue DHCP server, an NSOS upgrade from a vendor
 // advisory, and a time-based guest ACL.
 
+import { canMakeChange } from './access';
 import { evaluate, type Packet } from '../sim/acl';
 import { createDevice } from '../sim/devices';
 import { dhcpRequest, dhcpServerFor, forceApipa } from '../sim/dhcp';
@@ -369,9 +370,9 @@ const rogueDhcp: TicketTemplate = {
 const daiPrinters: TicketTemplate = {
   id: 'dai-printers',
   difficulty: 'moderate',
-  canStart: (ctx) => !busy(ctx, L2_SECURITY) && noL2Security(ctx.net) && ACCESS.some((sw) => onFloor(ctx, sw).length > 0),
+  canStart: (ctx) => !busy(ctx, L2_SECURITY) && noL2Security(ctx.net) && ACCESS.some((sw) => onFloor(ctx, sw).length > 0 && canMakeChange(ctx.net, 'msp-secops', sw)),
   plan: (ctx) => {
-    const sw = ctx.rng.pick(ACCESS.filter((s) => onFloor(ctx, s).length > 0));
+    const sw = ctx.rng.pick(ACCESS.filter((s) => onFloor(ctx, s).length > 0 && canMakeChange(ctx.net, 'msp-secops', s)));
     return { sw, pcId: ctx.rng.pick(onFloor(ctx, sw)).pcId, variant: ctx.rng.int(0, 1) };
   },
   build: (env, params) => {
@@ -422,7 +423,7 @@ const daiPrinters: TicketTemplate = {
 const option82: TicketTemplate = {
   id: 'option82-outage',
   difficulty: 'hard',
-  canStart: (ctx) => !busy(ctx, L2_SECURITY) && noL2Security(ctx.net) && onFloor(ctx, 'acc2').length > 1,
+  canStart: (ctx) => canMakeChange(ctx.net, 'msp-secops', 'acc2') && !busy(ctx, L2_SECURITY) && noL2Security(ctx.net) && onFloor(ctx, 'acc2').length > 1,
   plan: (ctx) => {
     const people = onFloor(ctx, 'acc2');
     const pc = ctx.rng.pick(people).pcId;

@@ -266,6 +266,11 @@ error messages, the faults it can cause, and ticket templates that use it.
       with reboot), print drivers on PCs. Tickets: printer cable, broken print driver, cable moved to the wrong port
 - [x] **Documentation carries over ("rebirth"):** your notebook and doc edits live outside the game save and come
       with you into every new game; deleting them takes three confirmations in Settings
+- [x] **Who can change the network (Nov 2026):** the contractor, the MSP and Tom get in with the shared admin passwords
+      (nocadmin's original secret, the router's `backup` account). Change them, or lock the vty lines to the NOC with an
+      access-class, and their changes (and the tickets they cause) stop; only Jordan keeps access
+- [x] **Escalations are checked:** a coworker's fix is verified against the network; if the ticket's users are still
+      down they hand it back honestly, and they mention when others are down for an unrelated reason
 - [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe

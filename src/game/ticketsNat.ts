@@ -1,5 +1,6 @@
 // Tickets caused by NAT on CR-RTR1: the NAT ACL narrowed, overload dropped, `ip nat inside` removed.
 
+import { canMakeChange } from './access';
 import { parseIp } from '../sim/ip';
 import type { NatRule } from '../sim/nat';
 import type { Network } from '../sim/network';
@@ -34,7 +35,7 @@ const twoPeople: TicketTemplate['plan'] = (ctx) => {
 };
 
 /** One NAT ticket at a time, and only while the original PAT setup is intact. */
-const canStart: TicketTemplate['canStart'] = (ctx) =>
+const canStart: TicketTemplate['canStart'] = (ctx) => canMakeChange(ctx.net, 'dlindqvist', 'rtr1') &&
   !['nat-acl-narrowed', 'nat-no-overload', 'nat-inside-missing'].some((t) => ctx.activeTemplates.has(t)) && patIntact(ctx.net) && freePeople(ctx).length > 1;
 
 function restorePat(net: Network): void {

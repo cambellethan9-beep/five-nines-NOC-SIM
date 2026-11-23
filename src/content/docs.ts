@@ -224,6 +224,7 @@ export function predecessorDocs(office: Office): Doc[] {
             'Save with `write memory`. Unsaved changes disappear on reboot.',
             'Don\'t `reload` anything during business hours unless it\'s already down.',
             'Don\'t remove the `ip ssh pubkey-chain` entries, or the NOC PC loses passwordless access.',
+            'Confession: the nocadmin password got around. Tom has it "for emergencies", and so do the contractor (dlindqvist) and the MSP. So does the `backup` account on the router. Our NOC PC logs in with its key, so changing those passwords won\'t lock us out.',
           ],
         },
       ],
