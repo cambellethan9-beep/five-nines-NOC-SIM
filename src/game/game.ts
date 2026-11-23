@@ -2,7 +2,7 @@
 // monitoring history, background activity and the documentation they inherited.
 
 import { LATEST_PRINT_DRIVER, LATEST_PRINTER_FIRMWARE, type CableInHand } from './physical';
-import { Placement, type PlacementState } from './placement';
+import { migratePlacement, PLACEMENT_RANK, placedRank, type PlacementState } from './placement';
 import { Achievements, type AchievementState } from './achievements';
 import { IncidentLog, type DeclaredIncident, type IncidentReview, type IncidentState } from './incidents';
 import { updateArchives } from '../sim/backup';
@@ -122,7 +122,7 @@ export class Game {
   readonly achievements = new Achievements();
   /** The optional placement shift: offered once on a new game, until taken or declined. */
   placementOffered = true;
-  placement: Placement | null = null;
+  placement: PlacementState | null = null;
   /** A patch cable you unplugged at a switch and are holding. */
   cableInHand: CableInHand | null = null;
   /** PCs ask DHCP for an address whenever their link comes up. */
@@ -157,6 +157,7 @@ export class Game {
     this.location = this.office.home;
     this.queue = new TicketQueue(this.net, this.office, this.net.rng, () => this.shiftStart + SHIFT_MS);
     this.chat = new Chat(this.net, this.office, this.net.rng, () => this.health.perUser, undefined, () => {
+      if (this.inPlacement) return null; // no hints during the placement shift
       const open = this.queue.openTickets().filter((t) => !t.escalation && t.seniorAt === null);
       if (!open.length) return null;
       const t = [...open].sort((a, b) => a.priority - b.priority || a.openedAt - b.openedAt)[0];
@@ -177,7 +178,6 @@ export class Game {
     this.ambient = new Ambient(this.net, () => {
       const busy = this.queue.busyPcs();
       busy.add(this.office.tutorial.pcId);
-      for (const pc of this.placement?.pcs ?? []) busy.add(pc);
       return busy;
     });
     this.docs = predecessorDocs(this.office);
@@ -270,42 +270,65 @@ export class Game {
 
   // ---- placement shift ----
 
-  /** Starts the placement test: the tutorial is set aside and the shift clock waits until it's over. */
+  /**
+   * Starts the placement test: an ordinary shift with a Network Engineer's ticket mix and limits, but no escalation
+   * or hints. Owen takes Priya's ticket so the test starts clean.
+   */
   startPlacement(): void {
     if (!this.placementOffered || this.placement) return;
     this.placementOffered = false;
-    const tut = this.queue.tickets.find((t) => t.draft.templateId === 'port-shutdown' && this.queue.isOpen(t));
-    if (tut) {
-      tut.draft.fix();
-      tut.status = 'senior-resolved';
-      tut.resolvedBy = 'owen';
-      tut.resolvedAt = this.net.time;
-      tut.activity.push({ t: this.net.time, who: 'senior', name: 'Owen Price', text: "Took care of this one so you can do the placement shift." });
-    }
+    this.queue.closeAllBySenior("Took care of this one so you can do the placement shift.");
     this.debriefShown = true;
-    this.shiftStart = Infinity;
-    this.placement = new Placement(this.net, this.office);
-    this.placement.fill();
+    this.placement = { active: true, done: false, acknowledged: false, score: null, placedRank: null, lifetimeBefore: this.queue.lifetimePoints };
+    this.queue.rankIndex = PLACEMENT_RANK;
+    this.queue.escalationLocked = 'Not during the placement shift: this one is all you.';
+    this.beginShift();
   }
 
   declinePlacement(): void {
     this.placementOffered = false;
   }
 
-  /** After the placement results: take the rank it gave you and start the first real shift. */
-  finishPlacement(): void {
-    const p = this.placement;
-    if (!p?.state.done || this.started) return;
-    const rank = p.state.placedRank ?? 0;
-    this.queue.rankIndex = Math.max(this.queue.rankIndex, rank);
+  /** The placement shift is over: score it, have Owen tidy up what's left, and put career points back. */
+  private endPlacement(): void {
+    const p = this.placement!;
+    this.queue.settleNotices();
+    this.postAccrued();
+    const stats = this.shiftStats();
+    const met = stats.slaCompliance >= stats.slaTarget;
+    const score = stats.points + (met ? RULES.shiftBonus : -RULES.shiftPenalty);
+    const shiftTickets = this.queue.tickets.filter((t) => t.shift === this.queue.shift && t.draft.templateId !== 'port-shutdown');
+    p.opened = shiftTickets.length;
+    p.resolved = shiftTickets.filter((t) => t.status === 'resolved' && !t.resolvedBy).length;
+    p.score = score;
+    p.placedRank = placedRank(score);
+    p.active = false;
+    p.done = true;
+    this.queue.closeAllBySenior('Wrapped this up after your placement shift.');
+    this.queue.lifetimePoints = p.lifetimeBefore;
+    this.queue.rankIndex = p.placedRank;
     this.queue.streak = 0;
     this.queue.qualifyingShifts = 0;
-    this.achievements.state.placedRank = rank;
+    this.queue.escalationLocked = null;
+    this.achievements.state.placedRank = p.placedRank;
+  }
+
+  /** After the placement results: start the first real shift at the rank it gave you. */
+  finishPlacement(): void {
+    const p = this.placement;
+    if (!p?.done || p.acknowledged) return;
+    p.acknowledged = true;
     this.beginShift();
   }
 
+  /** The placement shift is running. */
   get inPlacement(): boolean {
-    return !!this.placement && !this.started;
+    return !!this.placement?.active;
+  }
+
+  /** Placement results are waiting to be read (time is stopped). */
+  get placementResultsDue(): boolean {
+    return !!this.placement?.done && !this.placement.acknowledged;
   }
 
   // ---- declared incidents ----
@@ -430,7 +453,7 @@ export class Game {
       queue: this.queue.exportState(),
       incidents: this.incidents.exportState(),
       achievements: this.achievements.exportState(),
-      placement: { offered: this.placementOffered, state: this.placement?.state ?? null },
+      placement: { offered: this.placementOffered, state: this.placement },
       cableInHand: this.cableInHand,
       ambient: this.ambient.exportState(),
       chat: structuredClone(this.chat.state),
@@ -462,7 +485,8 @@ export class Game {
     this.achievements.fresh = [];
     this.placementOffered = save.placement?.offered ?? false;
     this.cableInHand = save.cableInHand ?? null;
-    this.placement = save.placement?.state ? new Placement(this.net, this.office, save.placement.state) : null;
+    this.placement = migratePlacement(save.placement?.state);
+    if (this.placement?.active) this.queue.escalationLocked = 'Not during the placement shift: this one is all you.';
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
     this.dhcp.baseline(this.net);
@@ -520,7 +544,7 @@ export class Game {
   }
 
   tick(ms: number): void {
-    if (this.report) return;
+    if (this.report || this.placementResultsDue) return;
     // Advance in sample-sized steps so a long jump (walking) still gets drained and checked.
     let left = ms;
     while (left > 0) {
@@ -532,13 +556,17 @@ export class Game {
       this.net.recoverErrDisabled();
       updateQuietMode(this.net);
       updateArchives(this.net);
-      if (this.placement && !this.placement.state.done) this.placement.update();
       if (this.started) {
         this.queue.update();
         this.checkServices(step);
         this.chat.update();
       }
       this.sample();
+      if (this.started && this.shiftRemaining === 0 && this.inPlacement) {
+        this.endPlacement();
+        this.achievements.evaluate(this);
+        return;
+      }
       if (this.started && this.shiftRemaining === 0) {
         this.endShift();
         this.achievements.evaluate(this);

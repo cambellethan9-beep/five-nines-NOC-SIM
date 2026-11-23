@@ -398,6 +398,26 @@ export class TicketQueue {
     return t;
   }
 
+  /** Set while escalation isn't allowed (the placement shift): the reason shown. */
+  escalationLocked: string | null = null;
+
+  /** A senior fixes and closes everything open or still unreported (no points either way). */
+  closeAllBySenior(text: string): void {
+    const now = this.net.time;
+    for (const p of this.pending.splice(0)) p.draft.fix();
+    for (const t of this.openTickets()) {
+      t.draft.fix();
+      t.status = 'senior-resolved';
+      t.resolvedBy = 'owen';
+      t.resolvedAt = now;
+      t.notifiedAt = now;
+      t.escalation = null;
+      t.activity.push({ t: now, who: 'senior', name: 'Owen Price', text });
+    }
+    // The fixed users were told; nobody is left waiting.
+    for (const t of this.awaitingNotice()) t.notifiedAt = now;
+  }
+
   /** Fixed tickets whose user hasn't been told yet: they're still sitting there not working. */
   awaitingNotice(): Ticket[] {
     return this.tickets.filter((t) => t.status === 'resolved' && t.notifiedAt === null);
@@ -435,6 +455,7 @@ export class TicketQueue {
   /** Why you can't escalate this ticket to this coworker right now, or null if you can. */
   escalationBlocked(t: Ticket, id: CoworkerId): string | null {
     const c = coworker(id);
+    if (this.escalationLocked) return this.escalationLocked;
     if (!this.isOpen(t)) return 'This ticket is closed.';
     if (t.escalation) return `Already with ${coworker(t.escalation.to).name.split(' ')[0]}.`;
     if (t.seniorAt !== null) return 'Owen is already taking this over.';

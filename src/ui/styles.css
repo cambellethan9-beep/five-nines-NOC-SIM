@@ -3159,3 +3159,11 @@ kbd {
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 12px;
 }
+
+.placement-banner {
+  margin: 0;
+  padding: 8px 16px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}

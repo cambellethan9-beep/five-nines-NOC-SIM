@@ -16,7 +16,7 @@ import { Terminal } from './Terminal';
 import { TicketsView } from './TicketsView';
 import { SettingsDialog } from './Settings';
 import { AchievementsDialog } from './Achievements';
-import { PlacementOffer, PlacementResults, PlacementView } from './Placement';
+import { PlacementBanner, PlacementOffer, PlacementResults } from './Placement';
 import { FrontPanel, PrinterPanel } from './FrontPanel';
 import type { DeclareDraft } from './Incidents';
 import { applyTheme, loadTheme } from './theme';
@@ -232,7 +232,7 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
             At <strong>{atHome ? 'your desk' : game.placeName(game.location)}</strong>
           </span>
           <span className="clock" title="Time on shift">
-            {game.inPlacement ? 'Placement shift' : `Shift ${shiftClock(game.shiftTime)}`}
+            {game.inPlacement ? `Placement shift ${shiftClock(game.shiftTime)}` : `Shift ${shiftClock(game.shiftTime)}`}
           </span>
           <span className={`saved ${saveFailed ? 'bad-text' : ''}`} title="Progress is saved in this browser">
             {saveFailed ? "Can't save in this browser" : savedAgo === null ? 'Autosaves every 15s' : `Saved ${savedAgo}s ago`}
@@ -284,8 +284,8 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
 
         <main className="main">
           <div className="view-area">
-            {view === 'tickets' && game.inPlacement && <PlacementView game={game} onMessage={say} />}
-            {view === 'tickets' && !game.inPlacement && <TicketsView game={game} tick={tick} selected={ticketSel} onSelect={setTicketSel} onMessage={say} declareDraft={declareDraft} onDeclare={setDeclareDraft} />}
+            {view === 'tickets' && game.inPlacement && <PlacementBanner game={game} />}
+            {view === 'tickets' && <TicketsView game={game} tick={tick} selected={ticketSel} onSelect={setTicketSel} onMessage={say} declareDraft={declareDraft} onDeclare={setDeclareDraft} />}
             {view === 'map' && <MapView game={game} tick={tick} selected={selected} onSelect={setSelected} onConsole={walk} onMonitor={openMonitor} />}
             {view === 'monitor' && <MonitorView game={game} tick={tick} selected={monitorSel} onSelect={setMonitorSel} onDeclare={declareFrom} />}
             {view === 'logs' && <LogsView game={game} tick={tick} onDeclare={declareFrom} />}
@@ -399,7 +399,7 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
           }}
         />
       )}
-      {game.inPlacement && game.placement?.state.done && (
+      {game.placementResultsDue && (
         <PlacementResults
           game={game}
           onStart={() => {
@@ -437,17 +437,6 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
   const stats = game.shiftStats();
   const open = game.queue.openTickets();
   const top = open.reduce((best, x) => Math.min(best, x.priority), 5);
-  if (game.inPlacement) {
-    return (
-      <button className="shift-card" onClick={onOpen} aria-label="Placement shift">
-        <span className="sc-row">
-          <span className="sc-label">Placement shift</span>
-          <span className="sc-value">{game.placement?.score ?? 0}</span>
-        </span>
-        <span className="sc-ok">The shift clock starts after the test</span>
-      </button>
-    );
-  }
   const m = Math.floor(game.shiftRemaining / 60000);
   return (
     <button className="shift-card" onClick={onOpen} aria-label="Shift summary, open tickets">
@@ -476,9 +465,9 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
       ) : (
         <span className="sc-ok">All services up · open ticket</span>
       )}
-      <span className="sc-rank">{stats.rankName}</span>
+      <span className="sc-rank">{game.inPlacement ? `Placement shift (${stats.rankName} workload)` : stats.rankName}</span>
       {game.achievements.title() && <span className="sc-title">"{game.achievements.title()}"</span>}
-      {game.queue.rank.promotion && (
+      {game.queue.rank.promotion && !game.inPlacement && (
         <span className="sc-promo">
           Promotion {game.queue.qualifyingShifts}/{game.queue.rank.promotion.shifts} shifts at {game.queue.rank.promotion.pointsPerShift}+
           {game.queue.streak > 0 && <> · streak {game.queue.streak}</>}

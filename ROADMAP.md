@@ -258,9 +258,9 @@ error messages, the faults it can cause, and ticket templates that use it.
       NOC-declared incidents (from Tickets, Logs or Monitor) with status, timeline, auto-linked user reports that
       count as acknowledged, and a post-incident review that can close linked tickets and go to the notebook;
       achievements (lifetime-point titles from "The Okayest Intern Ever" at 1,000 to 1,000,000, plus feats);
-      optional placement shift on a new game (5 fixed tickets easy to expert, run like a Network Engineer shift with
-      up to 3 open at once and arrivals staggered, 10 game minutes each, no hints or escalation; 600+ = Tier 2,
-      900+ = Network Engineer, max about 1,100; one attempt per game);
+      optional placement shift on a new game (an ordinary shift with a Network Engineer's ticket mix and limit of 3
+      in play, scored like any shift but with no escalation or hints; 600+ = Tier 2, 900+ = Network Engineer; the
+      points don't count toward your career; Owen wraps up anything left open; one attempt per game);
       physical layer: switch front panels (LEDs, physical port labels separate from `description`, unplug and
       move patch cables when standing at the switch), printer front panel (cable, network page, firmware update
       with reboot), print drivers on PCs. Tickets: printer cable, broken print driver, cable moved to the wrong port
