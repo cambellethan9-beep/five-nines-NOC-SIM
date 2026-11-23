@@ -18,6 +18,7 @@ import {
   type ScoreLine,
 } from './scoring';
 import { BASE_POINTS } from './scoring';
+import { GENERATED_SHARE, generatedTemplate, planGenerated } from './generator';
 import { canEscalateTo, coworker, COWORKERS, isDelegation, wastesManagersTime, type CoworkerId } from './coworkers';
 import { portShutdown, rebuildDraft, TEMPLATES, type Params, type TicketDraft, type TicketTemplate } from './templates';
 
@@ -244,12 +245,16 @@ export class TicketQueue {
     if (now < this.nextTicketAt) return;
     this.nextTicketAt = now + this.rng.int(4 * MIN, 9 * MIN);
     if (now > this.shiftEndsAt() - 8 * MIN) return;
-    const template = this.pickTemplate();
-    if (!template) return;
-    const ctx = this.context();
-    const draft = template.build(ctx, template.plan(ctx));
-    this.used.add(template.id);
+    const next = this.pickNext();
+    if (!next) return;
+    const draft = next.template.build(this.context(), next.params);
+    this.used.add(next.template.id);
     draft.inject();
+    // A generated fault that turned out to hurt nobody (everyone affected was away, say): quietly undo it.
+    if (next.template === generatedTemplate && draft.check()) {
+      draft.fix();
+      return;
+    }
     // Office-wide outages get noticed fast; one person's problem takes longer to be reported.
     const delay = draft.kind === 'request' ? 0 : draft.truePriority <= 2 ? this.rng.int(30_000, 90_000) : this.rng.int(60_000, 240_000);
     this.pending.push({ draft, faultAt: now, reportAt: now + delay, nextCheck: now + 15_000 });
@@ -315,6 +320,20 @@ export class TicketQueue {
     for (const p of this.pending) active.add(p.draft.templateId);
     for (const t of this.openTickets()) active.add(t.draft.templateId);
     return { net: this.net, office: this.office, rng: this.rng, busyPcs: this.busyPcs(), activeTemplates: active, usedTemplates: this.used };
+  }
+
+  /** The next new problem: usually from the fault generator, otherwise a hand-built ticket. */
+  pickNext(): { template: TicketTemplate; params: Params } | null {
+    const ctx = this.context();
+    if (this.rng.chance(GENERATED_SHARE)) {
+      const order: Difficulty[] = ['trivial', 'easy', 'moderate', 'hard', 'expert'];
+      const weights = this.rank.difficultyWeights;
+      const wanted = this.rng.weighted(order.map((d) => ({ item: d, weight: weights[d] })));
+      const params = planGenerated(ctx, wanted, this.rankIndex);
+      if (params) return { template: generatedTemplate, params };
+    }
+    const template = this.pickTemplate();
+    return template ? { template, params: template.plan(this.context()) } : null;
   }
 
   /** Picks a difficulty using the rank's weights, then an eligible template of that difficulty. */

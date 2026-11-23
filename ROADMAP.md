@@ -274,7 +274,15 @@ error messages, the faults it can cause, and ticket templates that use it.
   - Upstream ISP outage (prove it with traceroute, then call the carrier with the circuit ID)
   - Red herrings, cascading failures with one root cause, an undocumented coworker change
 - [ ] **Hard (220-point) ticket templates** (none exist yet)
-- [ ] **Generator:** picks faults weighted by rank and skill-radar weaknesses; difficulty knobs (combined faults, noise, ticket vagueness, ghost users)
+- [x] **Generator (approved Nov 2026, `src/game/faults.ts` + `generator.ts`):** 24 fault building blocks (desk, access
+      port, trunk, VLAN, SVI, DHCP relay, ACL, server ports, printers, default route) placed where they can really
+      happen; ticket text, subject and true priority come from the real impact on real users, in the reporter's
+      persona; extra related faults by rank (Tier 2 sometimes, Tier 3+ often, up to 3), red herrings from Tier 3,
+      "Configured from console by <coworker>" logs on config faults; difficulty from the faults; checked by outcome
+      (every hurt user has their services back); 60% generated / 40% hand-built. Still to come: skill-radar
+      weighting, more building blocks (routing protocols, NAT, security features)
+- [x] **Tell the user it's fixed:** a resolved incident leaves its reporter idle (draining like an outage) until you
+      notify them directly or announce to everyone; they chase you in chat; coworkers notify on their own fixes
 - [ ] **Real-time breakage (#2):** the network degrades on its own; **MTTR / MTBF** tracked
 - [ ] **Skill radar (#27):** incidents tagged by category, scored on performance
 - [ ] **Stale docs (#47a, #50):** network changes invalidate notes and predecessor runbooks

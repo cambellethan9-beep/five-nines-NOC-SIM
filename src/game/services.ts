@@ -59,6 +59,22 @@ export interface ServiceHealth {
   perUser: Record<string, string[]>;
 }
 
+/** Service ids this PC can't use right now (it must be awake to tell). */
+export function brokenServices(net: Network, pcId: string): string[] {
+  const pc = net.device(pcId);
+  const out: string[] = [];
+  for (const s of SERVICES) {
+    let ok: boolean;
+    if (s.byName && pc.hostNet) {
+      const r = resolve(net, pc.id, s.byName);
+      ok = r.ok && canReach(net, pc.id, r.ip, { proto: 'tcp', port: 443 });
+    } else ok = reachService(net, pc.id, s.target(net, pc.id));
+    if (!ok) out.push(s.id);
+  }
+  if (pc.printDriver && !pc.printDriver.ok && !out.includes('print')) out.push('print');
+  return out;
+}
+
 export function serviceHealth(net: Network, office: Office): ServiceHealth {
   const down: Record<string, number> = Object.fromEntries(SERVICES.map((s) => [s.id, 0]));
   let present = 0;

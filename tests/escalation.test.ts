@@ -90,10 +90,11 @@ describe('escalation', () => {
 
   it('escalations survive a save and finish after loading', () => {
     const game = new Game('esc');
-    game.queue.escalate(game.queue.tickets[0].id, 'owen');
+    const id = game.queue.tickets[0].id;
+    game.queue.escalate(id, 'owen');
     const restored = new Game(game.seed, JSON.parse(JSON.stringify(game.toSave())));
     restored.tick(13 * MIN);
-    expect(restored.queue.tickets[0].status).toBe('senior-resolved');
+    expect(restored.queue.find(id).status).toBe('senior-resolved');
     expect(restored.chat.conv('cw:owen').messages.length).toBeGreaterThan(0);
   });
 });

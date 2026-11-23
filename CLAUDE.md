@@ -7,8 +7,7 @@ multi-site networks, cloud vs on-prem, seasons, then accounts and a $3/month sub
 
 **Read `ROADMAP.md` first.** It is the source of truth for scope, phase order and every agreed decision.
 Phases 0 and 1 are done. Phase 2's CCNA core configuration list (items 1-9: filters, ACLs, NAT, IOS DHCP/DNS,
-syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) is done. **Next: the rest of Phase 2** (fault generator,
-skill radar, stale docs) in the order written there; propose before building. Riverside (multi-site) stays locked
+syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) is done. **Next: the rest of Phase 2** (skill radar, stale docs, more generator building blocks) in the order written there; propose before building. Riverside (multi-site) stays locked
 until a rank above NOC Manager.
 
 ## The owner and how to work with them
@@ -43,6 +42,9 @@ until a rank above NOC Manager.
   (`ssh nocadmin@<ip>`, no password); default username `nocadmin`.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
 - Recurring incidents are realistic: most tickets should come from a few common problems.
+- **Notify the user:** a fixed incident's reporter stays idle (drains like downtime) until you tell them (DM or announce).
+- **Generator:** 60% of new incidents are generated from fault building blocks; every block needs a test that it breaks
+  real services, fails the check and passes after `fix()` (tests/generator.test.ts loops over all of them).
 - **Escalation** (`src/game/coworkers.ts`): Jordan (Tier 1 peer, 50% credit), Owen (Tier 2, 35%), Gloria (NOC Manager, rank index 4,
   25%, penalty for routine tickets). Upward-only by rank. Coworkers really fix it and explain via `draft.explain`;
   Owen gives one `draft.hint` per ticket in chat. Every ticket template needs `explain` and `hint`.
@@ -59,7 +61,7 @@ Downtime drain scale; whether the
 | `src/sim/` (more) | ACLs (`acl.ts`), NAT (`nat.ts`), IOS DHCP server (`iosDhcp.ts`), syslog/NTP/SNMP (`mgmt.ts`), L2/STP/EtherChannel/VTP (`l2.ts`), MAC table (`mactable.ts`), type 7/login block-for/exec-timeout (`hardening.ts`), flash/TFTP/archive/configure replace (`backup.ts`), snooping/DAI/IPSG/PACL/VACL (`security.ts`), NSOS images/boot/ROMMON (`images.ts`) |
 | `src/sim/cli/` | Parser (`parser.ts`), session and modes (`session.ts`), feature command files (`*Commands.ts`, `routingShows.ts`), pipe filters |
 | `src/content/` | Cedar Ridge Accounting office (`office.ts`), predecessor docs (`docs.ts`), Phase 0 demo network (tests only) |
-| `src/game/` | Game state (`game.ts`), declared incidents (`incidents.ts`), achievements, placement shift, physical layer (`physical.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
+| `src/game/` | Game state (`game.ts`), fault generator (`faults.ts` building blocks + `generator.ts`), declared incidents (`incidents.ts`), achievements, placement shift, physical layer (`physical.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
 | `src/ui/` | React views: Tickets (+ search, NOC incidents), Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, front panels, terminal, intro, placement, achievements, settings (colors, hotkeys) |
 | `tests/` | Vitest; tests drive the CLI like a player. Keep all tests passing |
 

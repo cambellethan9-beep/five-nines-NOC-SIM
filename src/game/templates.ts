@@ -18,6 +18,7 @@ import { SWITCHING_TICKETS } from './ticketsSwitching';
 import { OPS_TICKETS } from './ticketsOps';
 import { SECURITY_TICKETS } from './ticketsSecurity';
 import { PHYSICAL_TICKETS } from './ticketsPhysical';
+import { generatedTemplate } from './generator';
 import { flushDns, resolve } from '../sim/dns';
 import {
   FS01, INTERNET, NIC, floorOf, freePeople, freePorts, person, pickPerson, portLabel, reaches, userIncident,
@@ -686,6 +687,7 @@ const partnerVlan: TicketTemplate = {
 };
 
 export const TEMPLATES: TicketTemplate[] = [
+  generatedTemplate,
   portShutdown,
   wrongVlan,
   cableUnplugged,

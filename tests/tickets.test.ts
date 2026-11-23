@@ -42,7 +42,7 @@ describe('scoring rules', () => {
 });
 
 describe('ticket templates', () => {
-  for (const template of TEMPLATES) {
+  for (const template of TEMPLATES.filter((t) => t.id !== 'generated')) {
     it(`${template.id}: breaks something real, check fails until it's fixed`, () => {
       const office = buildOffice('tpl');
       const ctx = { net: office.net, office, rng: new Rng(template.id), busyPcs: new Set([office.tutorial.pcId]), activeTemplates: new Set<string>(), usedTemplates: new Set<string>() };
