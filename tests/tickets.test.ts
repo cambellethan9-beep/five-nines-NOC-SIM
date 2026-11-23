@@ -213,11 +213,43 @@ describe('shift start', () => {
   });
 });
 
+describe('telling the user it is fixed', () => {
+  it('a fixed but untold user keeps draining and asks for an update; telling them stops it', () => {
+    const game = new Game('notify');
+    game.introPending = false;
+    game.queue.tickets[0].draft.fix();
+    game.queue.resolve('INC-1001', 'fixed');
+    game.tick(5_000);
+    expect(game.waitingUsers).toEqual([game.queue.find('INC-1001').draft.reporter.pcId]);
+    expect(game.healthy).toBe(false);
+    expect(game.pointsPerMinute).toBeLessThan(0);
+    const pc = game.queue.find('INC-1001').draft.reporter.pcId;
+    game.tick(10 * 60_000);
+    expect(game.chat.conv(pc).messages.some((m) => m.from === pc && /ticket|heard|fixed/i.test(m.text))).toBe(true);
+    expect(game.notifyUser('INC-1001', 'direct')).toBeNull();
+    expect(game.waitingUsers).toEqual([]);
+    game.tick(60_000);
+    expect(game.chat.conv(pc).messages.at(-1)!.from).toBe(pc); // they thank you
+    expect(game.notifyUser('INC-1001', 'direct')).toContain('already knows');
+  });
+
+  it('coworkers tell the user themselves', () => {
+    const game = new Game('notify2');
+    game.introPending = false;
+    game.queue.escalate('INC-1001', 'jordan');
+    game.tick(20 * 60_000);
+    const t = game.queue.tickets.find((x) => x.id === 'INC-1001')!;
+    if (t.status === 'senior-resolved') expect(t.notifiedAt).not.toBeNull();
+    expect(game.waitingUsers).toEqual([]);
+  });
+});
+
 describe('healthy network income', () => {
   it('earns 1 point every 2 seconds while nothing is broken and nothing is open', () => {
     const game = new Game('healthy');
     game.queue.tickets[0].draft.fix();
     game.queue.resolve('INC-1001', 'fixed');
+    game.notifyUser('INC-1001', 'direct');
     game.tick(5_000);
     expect(game.healthy).toBe(true);
     expect(game.pointsPerMinute).toBe(30);
@@ -240,6 +272,7 @@ describe('healthy network income', () => {
     const game = new Game('healthy');
     game.queue.tickets[0].draft.fix();
     game.queue.resolve('INC-1001', 'fixed');
+    game.notifyUser('INC-1001', 'direct');
     game.queue.startTemplate('partner-vlan', 0);
     game.tick(5_000);
     expect(game.queue.openTickets().map((t) => t.draft.kind)).toEqual(['request']);

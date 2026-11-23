@@ -161,7 +161,7 @@ export class Game {
       if (!open.length) return null;
       const t = [...open].sort((a, b) => a.priority - b.priority || a.openedAt - b.openedAt)[0];
       return { id: t.id, hint: t.draft.hint };
-    });
+    }, () => new Set(this.waitingUsers));
     this.queue.onCoworkerMessage = (id, text) => this.chat.coworkerSay(id, text);
     this.queue.onOpened = (t, faultAt) => {
       if (t.draft.kind !== 'incident') return;
@@ -497,7 +497,26 @@ export class Game {
 
   /** Points lost per minute right now to services being down. */
   get drainPerMinute(): number {
-    return this.health.brokenPairs * RULES.drainPerUserMinute;
+    return (this.health.brokenPairs + this.waitingUsers.length) * RULES.drainPerUserMinute;
+  }
+
+  /** People whose problem is fixed but who haven't been told: they're still not working. */
+  get waitingUsers(): string[] {
+    return [...new Set(this.queue.awaitingNotice().map((t) => t.draft.reporter.pcId))];
+  }
+
+  /** Tells the user their problem is fixed: a direct message, or an announcement to the whole office. */
+  notifyUser(ticketId: string, how: 'direct' | 'everyone'): string | null {
+    const t = this.queue.find(ticketId);
+    const err = this.queue.notify(ticketId, how);
+    if (err) return err;
+    const first = t.draft.reporter.name.split(' ')[0];
+    const text =
+      how === 'direct'
+        ? `Hi ${first}, ${t.id} is fixed: everything should be working again, so you can carry on. Let me know if anything still looks off.`
+        : `All: the problem from earlier (${t.draft.subject.toLowerCase()}) is fixed and everything is working again. Thanks for your patience. Tell us if anything still looks off.`;
+    this.chat.notifyFixed(t.draft.reporter.pcId, text, how);
+    return null;
   }
 
   tick(ms: number): void {
@@ -534,7 +553,8 @@ export class Game {
     const pairs = this.health.usersPresent * SERVICES.length;
     this.totalPairs += pairs * stepMs;
     this.upPairs += (pairs - this.health.brokenPairs) * stepMs;
-    this.drainAcc += (this.health.brokenPairs * RULES.drainPerUserMinute * stepMs) / 60_000;
+    // People who were fixed but never told are still idle, so they cost the same as being broken.
+    this.drainAcc += ((this.health.brokenPairs + this.waitingUsers.length) * RULES.drainPerUserMinute * stepMs) / 60_000;
     if (this.healthy) this.healthyAcc += (RULES.healthyPointsPerSecond * stepMs) / 1000;
     if (this.net.time - this.lastDrainPost >= 60_000) {
       this.postAccrued();
@@ -544,12 +564,12 @@ export class Game {
 
   /** No broken services and no open incidents. Change requests don't count as problems. */
   get healthy(): boolean {
-    return this.health.brokenPairs === 0 && !this.queue.openTickets().some((t) => t.draft.kind === 'incident');
+    return this.health.brokenPairs === 0 && this.waitingUsers.length === 0 && !this.queue.openTickets().some((t) => t.draft.kind === 'incident');
   }
 
   /** Points per minute right now: positive while healthy, negative while services are down. */
   get pointsPerMinute(): number {
-    if (this.health.brokenPairs > 0) return -this.drainPerMinute;
+    if (this.drainPerMinute > 0) return -this.drainPerMinute;
     return this.healthy ? RULES.healthyPointsPerSecond * 60 : 0;
   }
 
@@ -595,6 +615,7 @@ export class Game {
   }
 
   private endShift(): void {
+    this.queue.settleNotices();
     this.postAccrued();
     const stats = this.shiftStats();
     // Points are what count. Downtime already drains points while it lasts, so missing the uptime target adds no

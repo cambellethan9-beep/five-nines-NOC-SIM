@@ -207,6 +207,7 @@ export function TicketsView({ game, tick, selected, onSelect, onMessage, declare
                         <span className="q-done">{t.status === 'resolved' ? `+${Math.max(0, total(t.score))}` : '0'}</span>
                       )}
                       <span className={`st st-${t.status}`}>{STATUS_LABEL[t.status]}</span>
+                      {t.status === 'resolved' && t.notifiedAt === null && <span className="st st-notify">tell user</span>}
                     </span>
                   </button>
                 </li>
@@ -311,6 +312,36 @@ function TicketDetail({ game, ticket: t, onMessage, onSelect }: { game: Game; ti
           )
         )}
       </header>
+
+      {t.status === 'resolved' && t.notifiedAt === null && (
+        <section className="notify-box" aria-label="Tell the user">
+          <p>
+            <strong>{t.draft.reporter.name} doesn't know it's fixed yet.</strong> Until someone tells them, they're still sitting there not working (it costs the same as
+            being down).
+          </p>
+          <div className="row-form">
+            <button
+              className="primary"
+              onClick={() => {
+                const err = game.notifyUser(t.id, 'direct');
+                onMessage(err ?? `Told ${t.draft.reporter.name} it's working again.`);
+              }}
+            >
+              Notify user: working again
+            </button>
+            <button
+              className="secondary"
+              onClick={() => {
+                const err = game.notifyUser(t.id, 'everyone');
+                onMessage(err ?? 'Announced to everyone that it is working again.');
+              }}
+              title="For problems that hit more than one person"
+            >
+              Announce to everyone
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="td-grid">
         <section className="td-card">

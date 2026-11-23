@@ -3138,3 +3138,19 @@ kbd {
   color: var(--text);
   padding: 4px 6px;
 }
+
+.notify-box {
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.notify-box p {
+  margin: 0 0 6px;
+}
+.st-notify {
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+  color: var(--warn);
+}

@@ -55,6 +55,8 @@ export interface ChatState {
   tipsUsed?: number[];
   /** Tickets Owen already nudged you on. */
   hinted?: string[];
+  /** When people waiting to hear back will next ask about their ticket. */
+  nag?: Record<string, number>;
 }
 
 interface Talk {
@@ -85,6 +87,18 @@ const COMPLAINTS: Record<string, string[]> = {
 };
 const FED_UP = ['Is IT even here today?', 'Anyone know who to call about this?', "I'm going to get nothing done today.", 'Cool. Love this. Very productive day.'];
 const PILE_ON = ['Same here', 'mine too', '+1', 'same', 'Yep, nothing works over here either', 'Glad it\'s not just me'];
+const NAGS = [
+  'Any update on my ticket? I still haven\'t heard anything.',
+  'Hi, is someone looking at my issue? Nobody got back to me.',
+  'Just checking, is my problem fixed yet? I don\'t want to restart again and lose stuff.',
+  'Still waiting to hear back about my ticket...',
+];
+const THANKS: Record<Persona, string[]> = {
+  helpful: ['Oh great, thank you! Back to work.', 'Perfect, thanks so much!', 'Confirmed, it works. Thank you!'],
+  impatient: ['Finally. Thanks.', 'About time. OK.', 'Fine, working now.'],
+  clueless: ['Oh! So I can use it now? Great, thanks!', 'Wait, it was broken? Ha. OK thanks!', 'Thank you! What did you do?'],
+  ghost: ['k', 'thx'],
+};
 const BACK = ["ok it's back", 'finally.', 'Working again, thanks whoever fixed it', 'about time'];
 
 export class Chat {
@@ -99,6 +113,8 @@ export class Chat {
     state?: ChatState,
     /** The most urgent open ticket and its hint, for when you ask Owen for help. */
     private readonly urgentTicket: () => { id: string; hint: string } | null = () => null,
+    /** People whose problem was fixed but who haven't been told yet. */
+    private readonly waiting: () => Set<string> = () => new Set(),
   ) {
     this.state = state ?? { convs: {}, outbox: [], nextComplaint: {}, complaints: {}, calmUntil: 0, askedCable: {} };
     this.conv(ALL);
@@ -195,15 +211,50 @@ export class Chat {
       s.nextComplaint[pcId] = now + gap;
     }
 
-    // People whose problem went away.
+    // People whose problem was fixed but nobody told them: they sit tight and eventually ask.
+    const waiting = this.waiting();
+    const nag = (s.nag ??= {});
+    for (const pcId of waiting) {
+      if (broken[pcId]) continue;
+      if (nag[pcId] === undefined) {
+        nag[pcId] = now + this.rng.int(3 * MIN, 6 * MIN);
+        continue;
+      }
+      if (now < nag[pcId]) continue;
+      const p = this.person(pcId);
+      if (p && !(personaOf(p) === 'ghost' && !this.rng.chance(0.3))) this.post(pcId, pcId, this.rng.pick(NAGS));
+      nag[pcId] = now + this.rng.int(5 * MIN, 9 * MIN);
+    }
+    for (const pcId of Object.keys(nag)) if (!waiting.has(pcId)) delete nag[pcId];
+
+    // People whose problem went away (and who weren't waiting on a ticket of their own).
     for (const pcId of Object.keys(s.nextComplaint)) {
       if (broken[pcId]) continue;
+      if (waiting.has(pcId)) {
+        delete s.nextComplaint[pcId];
+        continue;
+      }
       if ((s.complaints[pcId] ?? 0) > 0 && this.rng.chance(0.4)) {
         this.queue(ALL, pcId, this.rng.pick(BACK), this.rng.int(10 * SEC, 60 * SEC));
       }
       delete s.nextComplaint[pcId];
       delete s.complaints[pcId];
     }
+  }
+
+  /** You tell someone (or everyone) that their problem is fixed. They thank you and get back to work. */
+  notifyFixed(pcId: string, text: string, how: 'direct' | 'everyone'): void {
+    const conv = how === 'direct' ? pcId : ALL;
+    this.post(conv, 'you', text);
+    this.markRead(conv);
+    if (how === 'everyone') this.state.calmUntil = this.net.time + 20 * MIN;
+    delete this.state.nag?.[pcId];
+    delete this.state.complaints[pcId];
+    const p = this.person(pcId);
+    if (!p) return;
+    const persona = personaOf(p);
+    const reply = THANKS[persona] ? this.rng.pick(THANKS[persona]) : 'Thanks!';
+    this.queue(conv, pcId, reply, persona === 'ghost' ? this.rng.int(2 * MIN, 6 * MIN) : this.rng.int(8 * SEC, 40 * SEC));
   }
 
   /** You send a message. Announcements to everyone calm complaints down for a while. */

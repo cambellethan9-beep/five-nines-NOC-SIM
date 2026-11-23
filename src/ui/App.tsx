@@ -469,6 +469,7 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
       {game.drainPerMinute > 0 ? (
         <span className="sc-drain">
           Losing {game.drainPerMinute} pts/min · {game.health.affectedUsers} {game.health.affectedUsers === 1 ? 'user' : 'users'} affected
+          {game.waitingUsers.length > 0 && <> · {game.waitingUsers.length} waiting to hear it's fixed</>}
         </span>
       ) : game.healthy ? (
         <span className="sc-ok">All clear · earning +{game.pointsPerMinute} pts/min</span>

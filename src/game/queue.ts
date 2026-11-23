@@ -69,6 +69,11 @@ export interface Ticket {
   activity: Activity[];
   /** Shift number the ticket was opened in. */
   shift: number;
+  /**
+   * When the user was told it's working again. null = fixed but nobody told them yet (they're still sitting idle);
+   * undefined = nothing to tell (requests, tickets from older saves).
+   */
+  notifiedAt?: number | null;
 }
 
 interface Pending {
@@ -182,6 +187,7 @@ export class TicketQueue {
           t.status = 'resolved';
           t.proactive = true;
           t.resolvedAt = now;
+          t.notifiedAt = now;
           t.respondedAt = now;
           t.activity.push({ t: now, who: 'system', text: 'Fixed before the user reported it. Ticket logged for the record.' });
           this.award(t, resolveScore({ ...this.scoreInput(t), proactive: true }));
@@ -211,6 +217,7 @@ export class TicketQueue {
         t.status = 'senior-resolved';
         t.resolvedAt = now;
         t.resolvedBy = 'owen';
+        t.notifiedAt = now;
         const text = `Took this over and fixed it. ${t.draft.explain}`;
         t.activity.push({ t: now, who: 'senior', name: 'Owen Price', text });
         this.onCoworkerMessage?.('owen', `About ${t.id}: ${t.draft.explain}`);
@@ -358,6 +365,7 @@ export class TicketQueue {
         { t: now, who: 'system', text: `Opened by the service desk as P${priority} (${SLA[priority].name}).` },
       ],
       shift: this.shift,
+      ...(draft.kind === 'incident' ? { notifiedAt: null } : {}),
     };
     if (draft.kind === 'request') t.id = t.id.replace('INC', 'CHG');
     this.tickets.unshift(t);
@@ -369,6 +377,29 @@ export class TicketQueue {
     const t = this.tickets.find((x) => x.id === id);
     if (!t) throw new Error(`No ticket ${id}`);
     return t;
+  }
+
+  /** Fixed tickets whose user hasn't been told yet: they're still sitting there not working. */
+  awaitingNotice(): Ticket[] {
+    return this.tickets.filter((t) => t.status === 'resolved' && t.notifiedAt === null);
+  }
+
+  /** Tell the user it's working again (a direct message, or an announcement to everyone). */
+  notify(id: string, how: 'direct' | 'everyone'): string | null {
+    const t = this.find(id);
+    if (t.notifiedAt !== null) return 'Nothing to tell: the user already knows, or this ticket has no one waiting.';
+    if (t.status !== 'resolved') return 'Resolve the ticket first.';
+    t.notifiedAt = this.net.time;
+    t.activity.push({ t: this.net.time, who: 'you', text: how === 'direct' ? `Let ${t.draft.reporter.name} know it's working again.` : "Announced to everyone that it's working again." });
+    return null;
+  }
+
+  /** At the end of a shift, anyone still waiting finds out the next morning. */
+  settleNotices(): void {
+    for (const t of this.awaitingNotice()) {
+      t.notifiedAt = this.net.time;
+      t.activity.push({ t: this.net.time, who: 'system', text: `${t.draft.reporter.name} found out it was fixed the next morning. Nobody told them.` });
+    }
   }
 
   /** Notified when a ticket opens (the game links it to a declared incident). */
@@ -437,6 +468,10 @@ export class TicketQueue {
     t.resolvedAt = now;
     t.resolvedBy = c.id;
     t.activity.push({ t: now, who: 'senior', name: c.name, text: `Fixed. ${t.draft.explain}` });
+    if (t.draft.kind === 'incident') {
+      t.notifiedAt = now;
+      t.activity.push({ t: now, who: 'senior', name: c.name, text: `Let ${t.draft.reporter.name} know it's working again.` });
+    }
     const base = BASE_POINTS[t.difficulty];
     const credit = esc.delegated ? 1 : c.credit;
     const lines: ScoreLine[] = [
