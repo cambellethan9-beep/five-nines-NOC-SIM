@@ -296,6 +296,13 @@ error messages, the faults it can cause, and ticket templates that use it.
 ---
 
 ## Phase 3: Career, world, company and budget
+
+- [ ] **Weekend maintenance shifts (owner's idea, Nov 2026):** 2 of every 7 shifts are the weekend. The office is
+      empty, so there are no user tickets, no points gained or lost (no drain, no healthy income): it's your window
+      for big infrastructure changes (re-cabling, NSOS upgrades with reloads, re-addressing, adding gear). To decide:
+      can you skip a weekend; is it neutral for the reliability streak and promotion count; can weekday change
+      requests be scheduled into it (doing disruptive work on a weekday costs drain); do real emergencies still
+      page you (on-call)
 **Goal:** a long-term progression arc with money that matters.
 
 - [x] **Ranks (#22) up to NOC Manager** and SLA tiers by rank (#43), 90% → 99.999% (built in Phase 1, see above)
@@ -457,3 +464,5 @@ error messages, the faults it can cause, and ticket templates that use it.
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?
 - 10× speed: remove before launch, or keep it but exclude it from healthy-network income?
+- Placement shift benchmarks (built with placeholders: Tier 2 at 300, Network Engineer at 650 plus the hard or expert
+  ticket solved; max about 1,100)
