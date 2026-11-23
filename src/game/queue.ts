@@ -398,9 +398,6 @@ export class TicketQueue {
     return t;
   }
 
-  /** Set while escalation isn't allowed (the placement shift): the reason shown. */
-  escalationLocked: string | null = null;
-
   /** A senior fixes and closes everything open or still unreported (no points either way). */
   closeAllBySenior(text: string): void {
     const now = this.net.time;
@@ -455,7 +452,6 @@ export class TicketQueue {
   /** Why you can't escalate this ticket to this coworker right now, or null if you can. */
   escalationBlocked(t: Ticket, id: CoworkerId): string | null {
     const c = coworker(id);
-    if (this.escalationLocked) return this.escalationLocked;
     if (!this.isOpen(t)) return 'This ticket is closed.';
     if (t.escalation) return `Already with ${coworker(t.escalation.to).name.split(' ')[0]}.`;
     if (t.seniorAt !== null) return 'Owen is already taking this over.';

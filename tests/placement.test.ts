@@ -18,7 +18,7 @@ function playShift(g: Game, fix: boolean): void {
 }
 
 describe('placement shift', () => {
-  it('is an ordinary shift at Network Engineer settings, with no escalation, and the score places you', () => {
+  it('is an ordinary shift at Network Engineer settings (escalation works as usual), and the score places you', () => {
     const g = new Game('place');
     g.introPending = false;
     g.startPlacement();
@@ -26,9 +26,6 @@ describe('placement shift', () => {
     expect(g.queue.openTickets().length).toBe(0); // Owen took the tutorial
     expect(g.queue.rank.maxOpenTickets).toBe(3);
     playShift(g, false);
-    // Let a ticket arrive and try to escalate it.
-    const t = g.queue.tickets.find((x) => g.queue.isOpen(x));
-    if (t) expect(g.queue.escalate(t.id, 'owen')).toContain('placement shift');
     expect(g.placementResultsDue).toBe(true);
     expect(g.placement!.score).not.toBeNull();
     // Owen cleaned up; no open tickets carry into the first real shift.
@@ -70,7 +67,8 @@ describe('placement shift', () => {
     const loaded = new Game('place3', JSON.parse(JSON.stringify(g.toSave())));
     expect(loaded.inPlacement).toBe(true);
     expect(loaded.queue.rankIndex).toBe(2);
-    expect(loaded.queue.escalationLocked).not.toBeNull();
+    const t = loaded.queue.openTickets()[0];
+    if (t) expect(loaded.queue.escalationBlocked(t, 'gloria')).toBeNull();
   });
 });
 

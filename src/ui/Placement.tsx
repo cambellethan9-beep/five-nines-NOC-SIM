@@ -11,7 +11,6 @@ export function PlacementOffer({ onTake, onDecline }: { onTake: () => void; onDe
         <p className="modal-sub">If you already know your way around a network, you can test out of the early ranks.</p>
         <ul className="place-rules">
           <li>It's a normal shift: whatever the day brings, scored like any other shift, with a {r.name}'s workload (up to {r.maxOpenTickets} tickets in play).</li>
-          <li>No escalation and no hints from Owen. It's all you.</li>
           <li>
             Score {PLACEMENT_BANDS.tier2}+ to start at {RANKS[1].name}, {PLACEMENT_BANDS.engineer}+ to start at {RANKS[2].name}. Below that you start at {RANKS[0].name}.
           </li>
@@ -37,7 +36,7 @@ export function PlacementBanner({ game }: { game: Game }) {
   return (
     <p className="placement-banner">
       <strong>Placement shift.</strong> {points} points so far
-      {next !== null ? <> · {next - points} more for {next === PLACEMENT_BANDS.tier2 ? RANKS[1].name : RANKS[2].name}</> : <> · {RANKS[2].name} pace</>} · no escalation or hints
+      {next !== null ? <> · {next - points} more for {next === PLACEMENT_BANDS.tier2 ? RANKS[1].name : RANKS[2].name}</> : <> · {RANKS[2].name} pace</>}
     </p>
   );
 }

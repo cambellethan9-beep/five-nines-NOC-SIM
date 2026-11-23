@@ -1,6 +1,5 @@
-// The placement shift: an optional test at the start of a new game. It's an ordinary shift, the same mix of tickets
-// and the same scoring as a Network Engineer's (up to three tickets in play), except there's no escalation and no
-// hints. The shift score places you at Tier 1, Tier 2 or Network Engineer. Its points don't count toward your career.
+// The placement shift: an optional test at the start of a new game. It's an ordinary shift, exactly like any other
+// at Network Engineer level (the same ticket mix, up to three tickets in play, escalation, hints and scoring). The shift score places you at Tier 1, Tier 2 or Network Engineer. Its points don't count toward your career.
 
 /** Shift score needed for each starting rank. */
 export const PLACEMENT_BANDS = { tier2: 600, engineer: 900 };

@@ -157,7 +157,6 @@ export class Game {
     this.location = this.office.home;
     this.queue = new TicketQueue(this.net, this.office, this.net.rng, () => this.shiftStart + SHIFT_MS);
     this.chat = new Chat(this.net, this.office, this.net.rng, () => this.health.perUser, undefined, () => {
-      if (this.inPlacement) return null; // no hints during the placement shift
       const open = this.queue.openTickets().filter((t) => !t.escalation && t.seniorAt === null);
       if (!open.length) return null;
       const t = [...open].sort((a, b) => a.priority - b.priority || a.openedAt - b.openedAt)[0];
@@ -271,8 +270,8 @@ export class Game {
   // ---- placement shift ----
 
   /**
-   * Starts the placement test: an ordinary shift with a Network Engineer's ticket mix and limits, but no escalation
-   * or hints. Owen takes Priya's ticket so the test starts clean.
+   * Starts the placement test: an ordinary shift with a Network Engineer's ticket mix and limits, exactly like a
+   * regular shift (escalation and hints included). Owen takes Priya's ticket so the test starts clean.
    */
   startPlacement(): void {
     if (!this.placementOffered || this.placement) return;
@@ -281,7 +280,6 @@ export class Game {
     this.debriefShown = true;
     this.placement = { active: true, done: false, acknowledged: false, score: null, placedRank: null, lifetimeBefore: this.queue.lifetimePoints };
     this.queue.rankIndex = PLACEMENT_RANK;
-    this.queue.escalationLocked = 'Not during the placement shift: this one is all you.';
     this.beginShift();
   }
 
@@ -309,7 +307,6 @@ export class Game {
     this.queue.rankIndex = p.placedRank;
     this.queue.streak = 0;
     this.queue.qualifyingShifts = 0;
-    this.queue.escalationLocked = null;
     this.achievements.state.placedRank = p.placedRank;
   }
 
@@ -486,7 +483,6 @@ export class Game {
     this.placementOffered = save.placement?.offered ?? false;
     this.cableInHand = save.cableInHand ?? null;
     this.placement = migratePlacement(save.placement?.state);
-    if (this.placement?.active) this.queue.escalationLocked = 'Not during the placement shift: this one is all you.';
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
     this.dhcp.baseline(this.net);

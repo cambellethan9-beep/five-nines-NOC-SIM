@@ -259,7 +259,7 @@ error messages, the faults it can cause, and ticket templates that use it.
       count as acknowledged, and a post-incident review that can close linked tickets and go to the notebook;
       achievements (lifetime-point titles from "The Okayest Intern Ever" at 1,000 to 1,000,000, plus feats);
       optional placement shift on a new game (an ordinary shift with a Network Engineer's ticket mix and limit of 3
-      in play, scored like any shift but with no escalation or hints; 600+ = Tier 2, 900+ = Network Engineer; the
+      in play, exactly like a regular shift, escalation and hints included; 600+ = Tier 2, 900+ = Network Engineer; the
       points don't count toward your career; Owen wraps up anything left open; one attempt per game);
       physical layer: switch front panels (LEDs, physical port labels separate from `description`, unplug and
       move patch cables when standing at the switch), printer front panel (cable, network page, firmware update
