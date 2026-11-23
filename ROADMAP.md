@@ -352,6 +352,26 @@ error messages, the faults it can cause, and ticket templates that use it.
 ---
 
 ## Phase 4: Team, training and specializations
+
+### Next batch, approved Nov 2026 (decisions so far; build once the runbook syntax is settled)
+- **Intern (from Tier 2):** one intern at Tier 2 and Network Engineer. Follows your runbooks; low skill, typos, slow.
+  Promotion: 200+ points a shift for 5 shifts in a row makes them a Tier 1 NOC tech and pays you **1,000 points**.
+  Proposed term: the internship lasts 15 shifts; not promoted by then, they leave and you can take a new intern
+  (owner asked for clarification, not yet confirmed)
+- **Employee points:** their fixes are scored like yours and count toward your shift score, and each employee keeps
+  their own shift score (plus lifetime points, tickets, mistakes) that you can monitor
+- **View employees' runbooks** (their own ones are view-only and leave with them)
+- **Runbook scripting and triggers (AND/OR):** the owner has a simpler syntax in mind and will explain it; wait for it
+  before building. (Proposal on file: marked command lines with {pc}/{switch}/{port}/{ip}/{floor} placeholders and
+  `ssh {switch}`; triggers like `(subject:"printer" OR desc:"can't print") AND floor:2`)
+- **Techs act on your priorities:** employees work tickets in the order of the priority you set
+- **Hiring paid employees waits for the budget** (no salaries without it). Team size is whatever you hire: 1 intern at
+  Tier 2 and Network Engineer; from NOC Manager it's entirely up to you
+- **Management console:** roster, skills, morale, workload, points, runbooks; fire, raise, promote, demote, train
+- **Training in real time:** from 10 real minutes (easy) to 4 real hours (hard); they do no tickets while training.
+  Bundle training levels into made-up NetSmart certificates; hiring can require a certificate
+- Later (not this batch): specializations, managing managers, budget and shop consoles, Python lab
+
 **Goal:** the late game shifts from firefighting to building and running a NOC.
 
 - [ ] **Your first employee is an intern, at Tier 2:** you are responsible for training and mentoring them, and this is
