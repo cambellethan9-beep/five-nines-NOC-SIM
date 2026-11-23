@@ -258,8 +258,9 @@ error messages, the faults it can cause, and ticket templates that use it.
       NOC-declared incidents (from Tickets, Logs or Monitor) with status, timeline, auto-linked user reports that
       count as acknowledged, and a post-incident review that can close linked tickets and go to the notebook;
       achievements (lifetime-point titles from "The Okayest Intern Ever" at 1,000 to 1,000,000, plus feats);
-      optional placement shift on a new game (5 fixed tickets easy to expert, 10 game minutes each, no hints or
-      escalation; 300+ = Tier 2, 650+ with the hard or expert solved = Network Engineer; one attempt per game);
+      optional placement shift on a new game (5 fixed tickets easy to expert, run like a Network Engineer shift with
+      up to 3 open at once and arrivals staggered, 10 game minutes each, no hints or escalation; 600+ = Tier 2,
+      900+ = Network Engineer, max about 1,100; one attempt per game);
       physical layer: switch front panels (LEDs, physical port labels separate from `description`, unplug and
       move patch cables when standing at the switch), printer front panel (cable, network page, firmware update
       with reboot), print drivers on PCs. Tickets: printer cable, broken print driver, cable moved to the wrong port
@@ -297,12 +298,16 @@ error messages, the faults it can cause, and ticket templates that use it.
 
 ## Phase 3: Career, world, company and budget
 
-- [ ] **Weekend maintenance shifts (owner's idea, Nov 2026):** 2 of every 7 shifts are the weekend. The office is
-      empty, so there are no user tickets, no points gained or lost (no drain, no healthy income): it's your window
-      for big infrastructure changes (re-cabling, NSOS upgrades with reloads, re-addressing, adding gear). To decide:
-      can you skip a weekend; is it neutral for the reliability streak and promotion count; can weekday change
-      requests be scheduled into it (doing disruptive work on a weekday costs drain); do real emergencies still
-      page you (on-call)
+- [ ] **Weekend maintenance shifts (owner's idea, Nov 2026, decided):** 2 of every 7 shifts are the weekend. The office
+      is empty: no user tickets, and the weekend doesn't affect your score at all (no points gained or lost, no
+      drain, no healthy income, neutral for the reliability streak and promotion count). It's your safe zone for
+      major changes (re-cabling, NSOS upgrades with reloads, re-addressing, adding gear).
+      - You can skip a weekend, but the game suggests what to do with it, because it's meant to teach: "A good time
+        to audit and document your equipment, or make major infrastructure changes", plus ideas drawn from your own
+        network (undocumented devices, old NSOS versions, no config backups, unused ports left open...)
+      - Change requests carry an urgency: critical ones (e.g. a security vulnerability) must be done immediately on
+        a weekday; routine ones (e.g. setting up a new VLAN) can be scheduled into the weekend
+      - No on-call by default (nobody is in the office). The one exception: a security breach can call you in
 **Goal:** a long-term progression arc with money that matters.
 
 - [x] **Ranks (#22) up to NOC Manager** and SLA tiers by rank (#43), 90% → 99.999% (built in Phase 1, see above)
@@ -464,5 +469,3 @@ error messages, the faults it can cause, and ticket templates that use it.
 - Release after Phase 2 (early access) or after Phase 6?
 - Downtime drain scale: per user per service (current), per user, or halved?
 - 10× speed: remove before launch, or keep it but exclude it from healthy-network income?
-- Placement shift benchmarks (built with placeholders: Tier 2 at 300, Network Engineer at 650 plus the hard or expert
-  ticket solved; max about 1,100)

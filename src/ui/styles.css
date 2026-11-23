@@ -3154,3 +3154,8 @@ kbd {
   background: color-mix(in srgb, var(--warn) 25%, transparent);
   color: var(--warn);
 }
+.placement-tickets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}

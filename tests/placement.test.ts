@@ -1,25 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import { Game } from '../src/game/game';
-import { PLACEMENT_STEPS, STEP_MS } from '../src/game/placement';
+import { PLACEMENT_STEPS, STEP_MS, placedRank } from '../src/game/placement';
 
 describe('placement shift', () => {
-  it('five real faults; solving them all quickly places you at Network Engineer', () => {
+  it('up to three at once like a Network Engineer shift; solving all five quickly places you at Network Engineer', () => {
     const g = new Game('place');
     g.introPending = false;
     g.startPlacement();
     expect(g.inPlacement).toBe(true);
     expect(g.queue.openTickets().length).toBe(0); // Owen took the tutorial
-    const shiftBefore = g.shiftStart;
-    expect(shiftBefore).toBe(Infinity);
-    for (let i = 0; i < PLACEMENT_STEPS.length; i++) {
-      const d = g.placement!.current!;
-      expect(d.check()).toBe(false); // really broken
-      expect(g.placement!.check()).toBe(false);
-      g.tick(60_000);
-      d.fix();
-      expect(g.placement!.check()).toBe(true);
+    expect(g.shiftStart).toBe(Infinity);
+    expect(g.placement!.current.length).toBe(1);
+    g.tick(5 * 60_000);
+    expect(g.placement!.current.length).toBe(3); // the rest trickled in
+    let guard = 0;
+    while (!g.placement!.state.done && guard++ < 20) {
+      // Tickets in play at the same time can hide each other (an outage masks a desk fault): fix them all.
+      const open = g.placement!.current;
+      for (const c of open) expect(c.draft.check()).toBe(false); // really broken
+      g.tick(5_000);
+      for (const c of open) c.draft.fix();
+      for (const c of open) expect(g.placement!.check(c.index)).toBe(true);
+      expect(g.placement!.current.length).toBeLessThanOrEqual(3);
+      g.tick(120_000); // the next ones arrive
     }
     expect(g.placement!.state.done).toBe(true);
+    expect(g.placement!.score).toBeGreaterThanOrEqual(900);
+    expect(g.placement!.state.results.every((r) => r.solved)).toBe(true);
     expect(g.placement!.state.placedRank).toBe(2);
     g.finishPlacement();
     expect(g.queue.rankIndex).toBe(2);
@@ -27,6 +34,14 @@ describe('placement shift', () => {
     expect(g.queue.lifetimePoints).toBe(0);
     g.tick(1000);
     expect(g.achievements.has('placed')).toBe(true);
+  });
+
+  it('bands: 600 for Tier 2, 900 for Network Engineer', () => {
+    const r = (points: number) => ({ index: 0, templateId: 'x', difficulty: 'easy' as const, solved: true, ms: 0, points });
+    expect(placedRank([r(599)])).toBe(0);
+    expect(placedRank([r(600)])).toBe(1);
+    expect(placedRank([r(899)])).toBe(1);
+    expect(placedRank([r(900)])).toBe(2);
   });
 
   it('running out of time on everything leaves you at Tier 1, and the network is fixed behind you', () => {
@@ -45,13 +60,15 @@ describe('placement shift', () => {
     const g = new Game('place3');
     g.introPending = false;
     g.startPlacement();
-    g.placement!.current!.fix();
-    g.placement!.check();
-    const subject = g.placement!.current!.subject;
+    g.tick(5 * 60_000);
+    const first = g.placement!.current[0];
+    first.draft.fix();
+    g.placement!.check(first.index);
+    const subjects = g.placement!.current.map((c) => c.draft.subject);
     const loaded = new Game('place3', JSON.parse(JSON.stringify(g.toSave())));
     expect(loaded.inPlacement).toBe(true);
-    expect(loaded.placement!.current!.subject).toBe(subject);
-    expect(loaded.placement!.current!.check()).toBe(false);
+    expect(loaded.placement!.current.map((c) => c.draft.subject)).toEqual(subjects);
+    expect(loaded.placement!.current[0].draft.check()).toBe(false);
   });
 });
 

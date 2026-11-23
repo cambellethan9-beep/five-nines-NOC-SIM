@@ -177,7 +177,7 @@ export class Game {
     this.ambient = new Ambient(this.net, () => {
       const busy = this.queue.busyPcs();
       busy.add(this.office.tutorial.pcId);
-      for (const pc of this.placement?.current?.pcs ?? []) busy.add(pc);
+      for (const pc of this.placement?.pcs ?? []) busy.add(pc);
       return busy;
     });
     this.docs = predecessorDocs(this.office);
@@ -285,7 +285,7 @@ export class Game {
     this.debriefShown = true;
     this.shiftStart = Infinity;
     this.placement = new Placement(this.net, this.office);
-    this.placement.startStep();
+    this.placement.fill();
   }
 
   declinePlacement(): void {
