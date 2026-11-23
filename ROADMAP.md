@@ -353,17 +353,31 @@ error messages, the faults it can cause, and ticket templates that use it.
 
 ## Phase 4: Team, training and specializations
 
-### Next batch, approved Nov 2026 (decisions so far; build once the runbook syntax is settled)
+### Next batch, approved Nov 2026 (all decided; build in one go when the owner says so)
 - **Intern (from Tier 2):** one intern at Tier 2 and Network Engineer. Follows your runbooks; low skill, typos, slow.
   Promotion: 200+ points a shift for 5 shifts in a row makes them a Tier 1 NOC tech and pays you **1,000 points**.
-  Proposed term: the internship lasts 15 shifts; not promoted by then, they leave and you can take a new intern
-  (owner asked for clarification, not yet confirmed)
+  Term: the internship lasts 15 shifts; not promoted by then, they leave and you can take a new intern (confirmed)
 - **Employee points:** their fixes are scored like yours and count toward your shift score, and each employee keeps
   their own shift score (plus lifetime points, tickets, mistakes) that you can monitor
 - **View employees' runbooks** (their own ones are view-only and leave with them)
-- **Runbook scripting and triggers (AND/OR):** the owner has a simpler syntax in mind and will explain it; wait for it
-  before building. (Proposal on file: marked command lines with {pc}/{switch}/{port}/{ip}/{floor} placeholders and
-  `ssh {switch}`; triggers like `(subject:"printer" OR desc:"can't print") AND floor:2`)
+- **Runbook scripting (decided):** runbooks are notebook notes. Highlight lines and mark them "This is a command"; marked
+  lines are typed in order from the NOC PC, the rest is explanation. Placeholders fill in from the ticket ({pc}, {ip},
+  {switch} = access switch management address for `ssh {switch}`, {switchname}, {port} like Fa0/7, {floor},
+  {printer}, {core}, {router}). Employees make typos by skill (intern ~8% a command, tech 1-2%); careful ones retype
+  after an error. When done, the network is checked: fixed -> they resolve and tell the user; not fixed -> handed back
+  with the log of what they typed and what the devices answered. **Players can script runbooks from Tier 1, before
+  they can get an intern**, with a trigger tester (which tickets would have matched) and a dry run (commands with
+  the placeholders filled in for a chosen ticket)
+- **Runbook triggers (owner's syntax):** a list of statements, one per line, each made of phrases joined by OR / AND.
+  If any line is true, the runbook runs. Example:
+  ```
+  triggerword1 OR triggerword2
+  triggerword3 OR triggerword4
+  triggerword5 AND triggerword6
+  ```
+  Phrases match anywhere in the ticket subject or description, case-insensitive, and can contain spaces. AND binds
+  tighter than OR within a line. Operators are uppercase so a phrase can contain a lowercase "and"/"or"
+- **Training time:** counted in real time while the game is running (not paused or closed)
 - **Techs act on your priorities:** employees work tickets in the order of the priority you set
 - **Hiring paid employees waits for the budget** (no salaries without it). Team size is whatever you hire: 1 intern at
   Tier 2 and Network Engineer; from NOC Manager it's entirely up to you
