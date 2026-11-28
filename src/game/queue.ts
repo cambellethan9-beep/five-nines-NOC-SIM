@@ -240,6 +240,11 @@ export class TicketQueue {
     }
   }
 
+  /** Problems already hurting people that nobody has reported yet (they drain, but there's no ticket). */
+  unreported(): number {
+    return this.pending.filter((p) => p.draft.kind === 'incident').length;
+  }
+
   /** Tickets in play: open, or already broken but not reported yet. */
   inPlay(): number {
     return this.openTickets().length + this.pending.length;

@@ -510,6 +510,9 @@ function ShiftCard({ game, onOpen }: { game: Game; onOpen: () => void }) {
         <span className="sc-drain">
           Losing {game.drainPerMinute} pts/min · {game.health.affectedUsers} {game.health.affectedUsers === 1 ? 'user' : 'users'} affected
           {game.waitingUsers.length > 0 && <> · {game.waitingUsers.length} waiting to hear it's fixed</>}
+          {game.queue.unreported() > 0 && (
+            <> · {game.queue.unreported()} {game.queue.unreported() === 1 ? 'problem' : 'problems'} nobody has reported yet</>
+          )}
         </span>
       ) : game.healthy ? (
         <span className="sc-ok">All clear · earning +{game.pointsPerMinute} pts/min</span>

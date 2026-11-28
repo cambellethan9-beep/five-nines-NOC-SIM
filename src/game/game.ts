@@ -209,8 +209,16 @@ export class Game {
     };
     // A senior who fixes something renews any PC that gave up on DHCP while it was broken.
     this.queue.onSeniorCleanup = () => {
+      // Also any PC holding a lease from something that isn't a real DHCP server (a rogue router).
+      const legit = new Set<number>();
       for (const d of this.net.devices.values()) {
-        if (d.hostNet?.dhcp && d.powered && (d.hostNet.apipa || !d.hostNet.lease)) dhcpRequest(this.net, d.id);
+        if (d.kind !== 'server' && !(d.managed && (d.kind === 'switch' || d.kind === 'router' || d.kind === 'l3switch'))) continue;
+        for (const i of Object.values(d.running.interfaces)) if (i.ip) legit.add(i.ip.address);
+      }
+      for (const d of this.net.devices.values()) {
+        const h = d.hostNet;
+        if (!h?.dhcp || !d.powered) continue;
+        if (h.apipa || !h.lease || !legit.has(h.lease.server)) dhcpRequest(this.net, d.id);
       }
     };
     this.queue.affectedNow = () => {
