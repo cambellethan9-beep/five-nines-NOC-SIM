@@ -352,6 +352,23 @@ Estimated at 5-7 working sessions. Possibly a paid feature later.
 
 ---
 
+## Phase 2.6: AI characters (approved Nov 28 2026, all seven points; after Phase 2.5)
+Real AI chat for staff, coworkers and employees, through the artifact's built-in "ask Claude" capability (no backend;
+each message uses the viewer's own Claude usage). The rule-based chat stays as the fallback (tests, local dev, AI off
+in Settings, or when the capability isn't available). Estimated 3-4 working sessions.
+- [ ] Everyone: 30 staff with their personas, Jordan/Owen/Gloria, your employees
+- [ ] Memory: after each conversation the character saves short notes (what you told them, promises, what happened to
+      them) into the save; carries across shifts
+- [ ] Grounded: each message carries what that person can really see right now (link light, on-screen error, which
+      services work); they report symptoms truthfully and never know causes or network internals
+- [ ] Actions as tools: staff can reseat a cable, restart the PC, read an error; employees take/drop tickets, set
+      focus, train, all as real game actions
+- [ ] No hand-holding kept: Owen one hint per ticket, coworkers never give the answer, Gloria busy
+- [ ] Fast model tier for staff, stronger for Owen and employees; handle rate limits by falling back to rule-based
+- [ ] Open question for Phase 7: a public launch needs a server and per-message cost (vs the $3/month price)
+
+---
+
 ## Phase 3: Career, world, company and budget
 
 - [ ] **Weekend maintenance shifts (owner's idea, Nov 2026, decided):** 2 of every 7 shifts are the weekend. The office
@@ -571,7 +588,8 @@ Estimated at 5-7 working sessions. Possibly a paid feature later.
 47c (inherited docs at new sites), 50a (predecessor runbooks wrong from day one), 52a (policy updates arrive as emails)
 
 ## Open questions
-- Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
+- ~~Optional in-browser LLM for chat~~ decided: AI characters via Claude in Phase 2.6
+- AI chat at public launch: server proxy and per-message cost vs the $3/month price
 - Release after Phase 2 (early access) or after Phase 6?
 - ~~Downtime drain scale~~ decided Nov 2026: keep it (2 per affected user per service per minute, so 10 a minute for
   someone with nothing working)
