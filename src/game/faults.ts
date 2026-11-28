@@ -882,6 +882,34 @@ const psecViolation: Fault = {
   hint: "Their port's light is off and the switch says err-disabled. Why? What changed on their desk?",
 };
 
+const nativeVlan: Fault = {
+  id: 'native-vlan',
+  difficulty: 'hard',
+  weight: 1,
+  sites: (net) =>
+    ['acc1', 'acc2']
+      .filter((sw) => {
+        const ifc = net.device(sw).running.interfaces['GigabitEthernet0/1'];
+        return ifc?.switchport && net.operationalMode(net.device(sw), ifc) === 'trunk' && ifc.switchport.nativeVlan === 1 && net.isUp(sw, 'GigabitEthernet0/1');
+      })
+      .map((sw) => ({ sw })),
+  victims: (net, office, site) => sample(floorPeople(net, office, s(site.sw)), 6),
+  configOn: (site) => s(site.sw),
+  resources: (site) => [`trunk:${site.sw}`],
+  inject: (net, site) => {
+    // Meant `switchport access vlan 10` on a desk port, typed it on the uplink as the native VLAN.
+    net.device(s(site.sw)).running.interfaces['GigabitEthernet0/1'].switchport!.nativeVlan = 10;
+    net.commit();
+  },
+  fix: (net, site) => {
+    net.device(s(site.sw)).running.interfaces['GigabitEthernet0/1'].switchport!.nativeVlan = 1;
+    net.commit();
+  },
+  explain: (_n, site) =>
+    `${swName(site.sw)} Gi0/1 had \`switchport trunk native vlan 10\` while CR-CORE1's end stayed on native VLAN 1. PVST+ caught the mismatch and blocked both VLAN 1 and VLAN 10 on the uplink (\`show spanning-tree\`: BKN*, *PVID_Inc; logs: %CDP-4-NATIVE_VLAN_MISMATCH and %SPANTREE-2-BLOCK_PVID_*), so the whole floor's staff VLAN was cut off. Putting the native VLAN back to 1 unblocked it.`,
+  hint: 'One floor, everything, and the uplink is up/up. Is the trunk actually forwarding VLAN 10? Read the switch logs.',
+};
+
 export const FAULTS: Fault[] = [
   portShut,
   wrongVlan,
@@ -916,6 +944,7 @@ export const FAULTS: Fault[] = [
   natAclNarrow,
   helperTypo,
   psecViolation,
+  nativeVlan,
 ];
 
 export function faultById(id: string): Fault {

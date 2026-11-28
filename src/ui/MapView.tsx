@@ -283,6 +283,7 @@ function DevicePanel({ game, id, onConsole, onMonitor }: { game: Game; id: strin
         ) : (
           <p className="dp-note">This belongs to Brightline Fiber. Call them if it misbehaves.</p>
         )}
+        {d.id === 'isp' && <CarrierCall game={game} />}
         {monitored && (
           <button className="secondary" onClick={() => onMonitor(id)}>
             Open in Monitor
@@ -295,5 +296,29 @@ function DevicePanel({ game, id, onConsole, onMonitor }: { game: Game; id: strin
         </p>
       )}
     </aside>
+  );
+}
+
+/** Phone the ISP. The support number and circuit ID are in the predecessor's docs (or on the handoff label). */
+function CarrierCall({ game }: { game: Game }) {
+  const [circuit, setCircuit] = useState('');
+  const [reply, setReply] = useState<string | null>(null);
+  return (
+    <form
+      className="carrier-call"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setReply(game.callCarrier(circuit));
+      }}
+    >
+      <label>
+        Circuit ID{' '}
+        <input value={circuit} onChange={(e) => setCircuit(e.target.value)} placeholder="from your docs" className="mono" aria-label="Circuit ID" />
+      </label>
+      <button className="secondary small" type="submit">
+        Call support (about 10 min)
+      </button>
+      {reply && <p className="dp-note">{reply}</p>}
+    </form>
   );
 }

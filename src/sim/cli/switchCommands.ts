@@ -439,7 +439,7 @@ export function addSwitchShows(t: Tree, privileged: boolean): void {
       for (const p of c.net.stp.vlans.get(v)!.get(c.dev.id)!.ports) {
         if (!p.inconsistent) continue;
         n++;
-        c.out.push(`${`VLAN${String(v).padStart(4, '0')}`.padEnd(21)}${p.name.padEnd(25)}${p.inconsistent === 'ROOT_Inc' ? 'Root Inconsistent' : 'Loop Inconsistent'}`);
+        c.out.push(`${`VLAN${String(v).padStart(4, '0')}`.padEnd(21)}${p.name.padEnd(25)}${p.inconsistent === 'ROOT_Inc' ? 'Root Inconsistent' : p.inconsistent === 'PVID_Inc' ? 'Port VLAN ID Inconsistent' : 'Loop Inconsistent'}`);
       }
     }
     c.out.push('', `Number of inconsistent ports (segments) in the system : ${n}`, '');

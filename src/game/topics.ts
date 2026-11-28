@@ -56,6 +56,7 @@ export const FAULT_TOPICS: Record<string, Topic[]> = {
   'ospf-passive': ['routing'],
   'ospf-network': ['routing'],
   'psec-violation': ['security'],
+  'native-vlan': ['switching', 'stp'],
 };
 
 export const TEMPLATE_TOPICS: Record<string, Topic[]> = {
@@ -112,6 +113,8 @@ export const TEMPLATE_TOPICS: Record<string, Topic[]> = {
   'printer-cable': ['physical'],
   'printer-driver': ['endpoints'],
   'patched-wrong': ['physical', 'switching'],
+  'ntp-drift': ['ops'],
+  'isp-outage': ['routing', 'ops'],
 };
 
 /** What a ticket is about. Generated tickets take the topics of every fault in them. */

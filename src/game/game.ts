@@ -4,6 +4,7 @@
 import { Breakage, type BreakageState } from './breakage';
 import { growthBonus, playerSkills, ticketTopics, TOPICS } from './topics';
 import { replaceNic } from './desk';
+import { ispDown, restoreIsp } from './ticketsUpstream';
 import { Team, type TeamState } from './team';
 import type { RunbookSettings } from './runbooks';
 import { dhcpRequest } from '../sim/dhcp';
@@ -15,7 +16,7 @@ import { updateArchives } from '../sim/backup';
 import { updateQuietMode } from '../sim/hardening';
 import { textToBlocks } from '../content/doctext';
 import { predecessorDocs, type Doc } from '../content/docs';
-import { buildOffice, NOC_PC_IP, SNMP_COMMUNITY, ZONES, type Office } from '../content/office';
+import { buildOffice, ISP, NOC_PC_IP, SNMP_COMMUNITY, ZONES, type Office } from '../content/office';
 import { snmpAnswers } from '../sim/mgmt';
 import { Ambient } from '../sim/ambient';
 import { DhcpWatcher } from '../sim/dhcp';
@@ -49,6 +50,14 @@ export interface Note {
   runbook?: RunbookSettings;
 }
 
+/** A trouble ticket you opened with the ISP. */
+export interface CarrierTicket {
+  ref: string;
+  openedAt: number;
+  /** When their fix lands (only if there really was a fault on their side). */
+  restoreAt: number | null;
+}
+
 export interface SaveFile {
   version: number;
   savedAt: number;
@@ -80,6 +89,7 @@ export interface SaveFile {
   team?: TeamState;
   ambient: ReturnType<Ambient['exportState']>;
   breakage?: BreakageState;
+  carrier?: CarrierTicket | null;
   chat: ChatState;
 }
 
@@ -134,6 +144,8 @@ export class Game {
   readonly achievements = new Achievements();
   /** Your team (the intern, for now). */
   readonly team = new Team();
+  /** Your open ticket with the ISP, if any. */
+  carrier: CarrierTicket | null = null;
   /** Hardware wearing out in real time. */
   readonly breakage: Breakage;
   /** The optional placement shift: offered once on a new game, until taken or declined. */
@@ -530,6 +542,7 @@ export class Game {
       cableInHand: this.cableInHand,
       team: this.team.exportState(),
       breakage: this.breakage.exportState(),
+      carrier: this.carrier,
       ambient: this.ambient.exportState(),
       chat: structuredClone(this.chat.state),
     };
@@ -562,6 +575,7 @@ export class Game {
     this.cableInHand = save.cableInHand ?? null;
     this.team.importState(save.team);
     this.breakage.importState(save.breakage);
+    this.carrier = save.carrier ?? null;
     this.placement = migratePlacement(save.placement?.state);
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
@@ -619,6 +633,38 @@ export class Game {
     return null;
   }
 
+  /**
+   * Phone the ISP's support line. They want the circuit ID; with the right one they test the line. A real fault on
+   * their side gets a carrier ticket and an estimated time to repair; if their side is clean you've lost time on hold.
+   */
+  callCarrier(circuit: string): string {
+    if (this.carrier && this.carrier.restoreAt !== null) return `You already have ${ISP.name} ticket ${this.carrier.ref} open. They said: estimated repair by ${this.net.formatLogTime(this.carrier.restoreAt).slice(-12, -7)}.`;
+    this.tick(4 * 60_000); // hold music, then the menu
+    const id = circuit.trim().toUpperCase();
+    if (id !== ISP.circuit) return `${ISP.name}: "I can't find a circuit with the ID '${circuit.trim() || '(none)'}'. It's on the contract or the handoff label, it looks like BLF-12345-XX."`;
+    this.tick(6 * 60_000); // line tests
+    const rng = this.net.rng;
+    const ref = `BLF-TT-${rng.int(100000, 999999)}`;
+    if (ispDown(this.net)) {
+      const etr = this.net.time + rng.int(18, 45) * 60_000;
+      this.carrier = { ref, openedAt: this.net.time, restoreAt: etr };
+      const t = this.queue.openTickets().find((x) => x.draft.templateId === 'isp-outage');
+      t?.activity.push({ t: this.net.time, who: 'you', text: `Opened ${ISP.name} ticket ${ref} for circuit ${ISP.circuit}. ETR ${this.net.formatLogTime(etr).slice(-12, -7)}.` });
+      return `${ISP.name}: "Thanks. I see it: we have a fiber cut affecting your area and crews are on site. Your ticket is ${ref}, estimated repair by ${this.net.formatLogTime(etr).slice(-12, -7)}. No need to call back; we'll close it when it's restored."`;
+    }
+    this.carrier = { ref, openedAt: this.net.time, restoreAt: null };
+    return `${ISP.name}: "Your circuit tests clean from our side, end to end, and we have no outages in your area. I've logged it as ${ref} and closed it. If you still see a problem, please check your own equipment first."`;
+  }
+
+  private updateCarrier(): void {
+    const c = this.carrier;
+    if (!c || c.restoreAt === null || this.net.time < c.restoreAt) return;
+    restoreIsp(this.net);
+    this.carrier = { ...c, restoreAt: null };
+    const t = this.queue.openTickets().find((x) => x.draft.templateId === 'isp-outage');
+    t?.activity.push({ t: this.net.time, who: 'system', text: `Email from ${ISP.name}: ticket ${c.ref} closed. Fiber repaired, service restored to circuit ${ISP.circuit}.` });
+  }
+
   tick(ms: number): void {
     if (this.report || this.placementResultsDue) return;
     // Advance in sample-sized steps so a long jump (walking) still gets drained and checked.
@@ -634,6 +680,7 @@ export class Game {
       updateArchives(this.net);
       if (this.started) {
         this.breakage.update(this.net, this.queue, this.queue.shift);
+        this.updateCarrier();
         this.queue.update();
         this.team.update(this);
         this.checkServices(step);

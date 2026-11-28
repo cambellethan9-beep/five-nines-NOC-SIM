@@ -307,6 +307,16 @@ export class Network {
         for (const p of b.ports) {
           if (p.inconsistent === 'ROOT_Inc') events.push(`${b.device}|%SPANTREE-2-ROOTGUARD_BLOCK: Root guard blocking port ${p.name} on VLAN${String(vlan).padStart(4, '0')}.`);
           if (p.inconsistent === 'LOOP_Inc') events.push(`${b.device}|%SPANTREE-2-LOOPGUARD_BLOCK: Loop guard blocking port ${p.name} on VLAN${String(vlan).padStart(4, '0')}.`);
+          if (p.inconsistent === 'PVID_Inc') {
+            const d = this.device(b.device);
+            const mine = d.running.interfaces[p.name]?.switchport?.nativeVlan;
+            const peer = this.peerOf(b.device, p.name);
+            const theirs = peer ? this.device(peer.device).running.interfaces[peer.iface]?.switchport?.nativeVlan : undefined;
+            const v4 = `VLAN${String(vlan).padStart(4, '0')}`;
+            if (vlan === mine) events.push(`${b.device}|%SPANTREE-2-BLOCK_PVID_LOCAL: Blocking ${p.name} on ${v4}. Inconsistent local vlan.`);
+            else events.push(`${b.device}|%SPANTREE-2-RECV_PVID_ERR: Received BPDU with inconsistent peer vlan id ${theirs} on ${p.name} VLAN${mine}.`, `${b.device}|%SPANTREE-2-BLOCK_PVID_PEER: Blocking ${p.name} on ${v4}. Inconsistent peer vlan.`);
+            if (vlan === mine && peer) events.push(`${b.device}|%CDP-4-NATIVE_VLAN_MISMATCH: Native VLAN mismatch discovered on ${p.name} (${mine}), with ${this.device(peer.device).running.hostname} ${peer.iface} (${theirs}).`);
+          }
         }
       }
     }

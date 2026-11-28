@@ -213,7 +213,7 @@ export interface StpPort {
   prio: number;
   num: number;
   edge: boolean;
-  inconsistent?: 'ROOT_Inc' | 'LOOP_Inc';
+  inconsistent?: 'ROOT_Inc' | 'LOOP_Inc' | 'PVID_Inc';
 }
 
 export interface StpBridge {
@@ -372,10 +372,23 @@ export function computeStp(net: Network, bundles: Map<string, Bundle>, dropped: 
     };
 
     // Root guard: a guarded port that would hear a better root goes root-inconsistent.
-    const rootGuarded = ports.filter((p) => p.cfg.stp?.guard === 'root');
-    const first = solve(new Set(rootGuarded));
-    const inconsistent = new Map<SPort, 'ROOT_Inc' | 'LOOP_Inc'>();
+    // PVST+ checks the native VLAN on 802.1Q trunks: if the two ends disagree, both native VLANs are blocked on that
+    // link (port VLAN ID inconsistent) until they match.
+    const native = (p: SPort) => (p.cfg.switchport && net.operationalMode(p.device, p.cfg) === 'trunk' && p.cfg.switchport.trunkEncapsulation !== 'isl' ? p.cfg.switchport.nativeVlan : null);
+    const pvid = new Set<SPort>();
+    for (const p of ports) {
+      const q = peerPort(p);
+      if (!q || !sendsBpdu(p) || !sendsBpdu(q)) continue;
+      const a = native(p);
+      const b = native(q);
+      if (a !== null && b !== null && a !== b && (vlan === a || vlan === b)) pvid.add(p);
+    }
+    const rootGuarded = ports.filter((p) => p.cfg.stp?.guard === 'root' && !pvid.has(p));
+    const first = solve(new Set([...rootGuarded, ...pvid]));
+    const inconsistent = new Map<SPort, 'ROOT_Inc' | 'LOOP_Inc' | 'PVID_Inc'>();
+    for (const p of pvid) inconsistent.set(p, 'PVID_Inc');
     for (const p of rootGuarded) {
+      if (inconsistent.has(p)) continue;
       const q = peerPort(p);
       if (!q || !sendsBpdu(q) || !sendsBpdu(p)) continue;
       const mine = first.roots.get(first.findC(p.device.id));

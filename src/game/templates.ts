@@ -18,6 +18,7 @@ import { SWITCHING_TICKETS } from './ticketsSwitching';
 import { OPS_TICKETS } from './ticketsOps';
 import { SECURITY_TICKETS } from './ticketsSecurity';
 import { PHYSICAL_TICKETS } from './ticketsPhysical';
+import { UPSTREAM_TICKETS } from './ticketsUpstream';
 import { generatedTemplate } from './generator';
 import { flushDns, resolve } from '../sim/dns';
 import {
@@ -714,6 +715,7 @@ export const TEMPLATES: TicketTemplate[] = [
   ...OPS_TICKETS,
   ...SECURITY_TICKETS,
   ...PHYSICAL_TICKETS,
+  ...UPSTREAM_TICKETS,
 ];
 
 export function rebuildDraft(env: Env, templateId: string, params: Params): TicketDraft {

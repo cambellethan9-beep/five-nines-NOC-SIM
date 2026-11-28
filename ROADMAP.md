@@ -277,7 +277,13 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] **Pause:** button and P key (Alt+P while typing); stops the shift clock, SLAs, drain and real-time training; the
       pause screen blocks play and offers Settings (backgrounds) and Achievements
 - [ ] **Python automation lab (Pyodide)**: moved to its own phase right after Phase 2 (Phase 2.5 below)
-- [ ] **Faults and tickets that use them:**
+- [x] **Faults and tickets that use them:** (the last three built Nov 28 2026: native VLAN mismatch as a generator block
+      with real PVST+ PVID-inconsistent blocking, `show spanning-tree` BKN*/PVID_Inc, `inconsistentports` and the
+      %CDP-4-NATIVE_VLAN_MISMATCH / %SPANTREE-2-*_PVID_* logs; NTP drift as a SecOps request on CR-ACC1 pointed at a
+      dead NTP server with a clock ~40-57 min fast; ISP outage upstream of the circuit: our WAN link stays up, their
+      router answers, traceroute dies after it. Fix: call Brightline from the ISP router on the Map with the circuit
+      ID from the docs; wrong ID = "can't find it", nothing wrong on their side = ~10 min lost on hold; a real fault
+      gets a carrier ticket and an ETR of 18-45 min, then service comes back and you resolve and tell everyone)
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
   - L3: wrong gateway, wrong IP/mask, missing static route, OSPF neighbor down (area/timers/passive), ACL blocking traffic
   - Services: DHCP scope exhausted / helper missing, DNS wrong, NTP drift, NAT broken after a router swap

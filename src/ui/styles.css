@@ -3440,3 +3440,6 @@ kbd {
 .skill-bars .bar { display: block; height: 8px; min-width: 120px; background: var(--line); border-radius: 4px; overflow: hidden; }
 .skill-bars .bar span { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
 .skill-bars .num { width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
+
+.carrier-call { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.carrier-call input { width: 100%; }
