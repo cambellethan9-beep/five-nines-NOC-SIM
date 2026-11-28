@@ -353,7 +353,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 
 ## Phase 4: Team, training and specializations
 
-### Next batch, approved Nov 2026 (all decided; build in one go when the owner says so)
+### Team batch, approved Nov 2026 (built Nov 28 2026: runbooks, triggers, intern, employee scores, priorities, Team view, training and certificates; paid hiring waits for the budget)
 - **Intern (from Tier 2):** one intern at Tier 2 and Network Engineer. Follows your runbooks; low skill, typos, slow.
   Promotion: 200+ points a shift for 5 shifts in a row makes them a Tier 1 NOC tech and pays you **1,000 points**.
   Term: the internship lasts 15 shifts; not promoted by then, they leave and you can take a new intern (confirmed)
@@ -388,7 +388,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 
 **Goal:** the late game shifts from firefighting to building and running a NOC.
 
-- [ ] **Your first employee is an intern, at Tier 2:** you are responsible for training and mentoring them, and this is
+- [x] **Your first employee is an intern, at Tier 2:** you are responsible for training and mentoring them, and this is
       where runbooks first matter (they follow yours). Interns are nearly free but bad at this: very low skills, slow,
       high mistake rate, need supervision, and leave at the end of their term. Train a good one and offer them a real job
 - [ ] **Hiring tab (unlocks at NOC Manager):** browse and filter resumes: name, skills, years in the industry, salary
@@ -414,11 +414,11 @@ error messages, the faults it can cause, and ticket templates that use it.
   - Cloud Architect needs cloud basics, so those move into this phase (below)
 - [ ] **Cloud basics (for Cloud Architect):** one cloud provider, cloud networks/subnets, security groups, route tables,
       a VPN to on-prem, and a monthly bill; scale, compliance and hybrid strategy come in Phase 5
-- [ ] **Runbook scripting (#46, #53):** write a runbook as ordinary text, then highlight lines and mark them
+- [x] **Runbook scripting (#46, #53):** write a runbook as ordinary text, then highlight lines and mark them
       **"This is a command"**. An employee following it types the marked commands top to bottom on the right device,
       reading the rest as instructions. Steps can be assembled and reordered; one-click runs for your own use; misuse
       during change freezes costs you
-- [ ] **Runbook triggers:** match keywords (and later alert types) to runbooks, so a ticket like "printer offline" is
+- [x] **Runbook triggers:** match keywords (and later alert types) to runbooks, so a ticket like "printer offline" is
       picked up and worked automatically by an employee assigned to that runbook. Bad matches and stale runbooks make
       things worse, so they need maintaining
 - [x] **Menial work costs seniors points (first version built):** at NOC Supervisor and NOC Manager, resolving a

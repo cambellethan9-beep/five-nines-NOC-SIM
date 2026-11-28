@@ -40,6 +40,7 @@ export const FEATS: Achievement[] = [
   { id: 'rank-2', name: 'Trusted With Enable', description: 'Become a Network Engineer (NOC Tier 3).' },
   { id: 'rank-3', name: 'Has a Team Now', description: 'Become a NOC Supervisor.' },
   { id: 'rank-4', name: 'Owns the Building', description: 'Become the NOC Manager.' },
+  { id: 'mentor', name: 'Paying It Forward', description: 'Get your intern promoted to Tier 1 NOC.' },
   { id: 'placed', name: 'Skipped the Line', description: 'Place above Tier 1 in the placement shift.' },
 ];
 
@@ -76,7 +77,7 @@ export class Achievements {
     const now = game.net.time;
     const q = game.queue;
     for (const t of POINT_TIERS) if (q.lifetimePoints >= t.points!) this.unlock(t.id, now);
-    const mine = q.tickets.filter((t) => t.status === 'resolved' && !t.resolvedBy);
+    const mine = q.tickets.filter((t) => t.status === 'resolved' && !t.resolvedBy && !t.employee);
     if (mine.length) this.unlock('first-ticket', now);
     if (mine.length >= 100) this.unlock('hundred', now);
     if (mine.some((t) => t.draft.kind === 'request')) this.unlock('first-change', now);
@@ -88,6 +89,7 @@ export class Achievements {
     if (q.streak >= 10) this.unlock('streak-10', now);
     for (let r = 1; r <= q.rankIndex; r++) this.unlock(`rank-${r}`, now);
     if ((this.state.placedRank ?? 0) > 0) this.unlock('placed', now);
+    if (game.team.employees.some((e) => e.promotedFromIntern)) this.unlock('mentor', now);
     // ROMMON: a device that was stuck there and now runs again.
     for (const d of game.net.devices.values()) {
       if (d.rommon && !this.state.inRommon.includes(d.id)) this.state.inRommon.push(d.id);

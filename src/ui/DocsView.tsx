@@ -1,7 +1,8 @@
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useRef, useState, type ReactNode } from 'react';
 import type { Block, Doc } from '../content/docs';
-import { blocksToText, textToBlocks } from '../content/doctext';
+import { blocksToText } from '../content/doctext';
 import type { Game } from '../game/game';
+import { CommandToolbar, RunbookBody, RunbookSettings } from './Runbook';
 
 /** Renders `code` and **bold** inside a line of text. */
 function inline(text: string): ReactNode {
@@ -71,6 +72,7 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
   const doc = note ? null : (docs.find((d) => d.id === active) ?? docs[0]);
   const [title, setTitle] = useState(startNote?.title ?? '');
   const [body, setBody] = useState(startNote?.body ?? '');
+  const area = useRef<HTMLTextAreaElement>(null);
 
   const open = (id: string) => {
     setActive(id);
@@ -113,6 +115,7 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
               <li key={n.id}>
                 <button className={`doc-item ${n.id === active ? 'active' : ''}`} onClick={() => open(n.id)}>
                   {n.title}
+                  {n.runbook && <span className={`rb-tag ${n.runbook.enabled ? '' : 'off'}`}>runbook</span>}
                 </button>
               </li>
             ))}
@@ -151,8 +154,10 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
           </header>
           {editing ? (
             <div className="note-editor">
+              <CommandToolbar area={area} body={body} setBody={setBody} />
               <textarea
                 id="note-body"
+                ref={area}
                 value={body}
                 onChange={(e) => setBody(e.target.value)}
                 rows={16}
@@ -176,7 +181,8 @@ export function DocsView({ game, tick, openNote }: { game: Game; tick: number; o
             </div>
           ) : (
             <>
-              {note.body.trim() ? textToBlocks(note.body).map((b, i) => <BlockView key={i} block={b} />) : <p className="docs-foot">This note is empty.</p>}
+              {note.body.trim() ? <RunbookBody body={note.body} render={(b, i) => <BlockView key={i} block={b} />} /> : <p className="docs-foot">This note is empty.</p>}
+              <RunbookSettings key={note.id} game={game} note={note} />
               <div className="td-buttons note-actions">
                 <button className="secondary" onClick={startEdit}>
                   Edit

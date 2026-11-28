@@ -43,6 +43,10 @@ until a rank above NOC Manager.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
 - Recurring incidents are realistic: most tickets should come from a few common problems.
 - **Notify the user:** a fixed incident's reporter stays idle (drains like downtime) until you tell them (DM or announce).
+- **Team:** runbooks are notebook notes (marked lines `» `, placeholders, trigger lines of OR/AND phrases; any line
+  true = match). The intern (from Tier 2) works matching tickets in the order of the player's priority, resolves only if
+  the network check passes (else hands back with a log), keeps their own shift score; 200+ for 5 shifts in a row =
+  Tier 1 NOC + 1,000 points; 15-shift term. Training is real time into NetSmart certs (NSCT/NSCA/NSCS/NSCP).
 - **Generator:** 60% of new incidents are generated from fault building blocks; every block needs a test that it breaks
   real services, fails the check and passes after `fix()` (tests/generator.test.ts loops over all of them).
 - **Escalation** (`src/game/coworkers.ts`): Jordan (Tier 1 peer, 50% credit), Owen (Tier 2, 35%), Gloria (NOC Manager, rank index 4,
@@ -61,8 +65,8 @@ Downtime drain scale; whether the
 | `src/sim/` (more) | ACLs (`acl.ts`), NAT (`nat.ts`), IOS DHCP server (`iosDhcp.ts`), syslog/NTP/SNMP (`mgmt.ts`), L2/STP/EtherChannel/VTP (`l2.ts`), MAC table (`mactable.ts`), type 7/login block-for/exec-timeout (`hardening.ts`), flash/TFTP/archive/configure replace (`backup.ts`), snooping/DAI/IPSG/PACL/VACL (`security.ts`), NSOS images/boot/ROMMON (`images.ts`) |
 | `src/sim/cli/` | Parser (`parser.ts`), session and modes (`session.ts`), feature command files (`*Commands.ts`, `routingShows.ts`), pipe filters |
 | `src/content/` | Cedar Ridge Accounting office (`office.ts`), predecessor docs (`docs.ts`), Phase 0 demo network (tests only) |
-| `src/game/` | Game state (`game.ts`), fault generator (`faults.ts` building blocks + `generator.ts`), declared incidents (`incidents.ts`), achievements, placement shift, physical layer (`physical.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
-| `src/ui/` | React views: Tickets (+ search, NOC incidents), Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, front panels, terminal, intro, placement, achievements, settings (colors, hotkeys) |
+| `src/game/` | Game state (`game.ts`), team and training (`team.ts`), runbooks (`runbooks.ts`), who can log in (`access.ts`), fault generator (`faults.ts` building blocks + `generator.ts`), declared incidents (`incidents.ts`), achievements, placement shift, physical layer (`physical.ts`), ticket queue, ticket templates (`templates.ts` + `tickets*.ts` packs, helpers in `ticketKit.ts`), scoring, services/drain, chat, desk actions, browser save (`storage.ts`) |
+| `src/ui/` | React views: Tickets (+ search, NOC incidents), Chat, Map, Monitor, Logs, Docs (+ notebook), desk view, front panels, terminal, intro, placement, achievements, settings (colors, hotkeys), Team view, runbook editor (`Runbook.tsx`) |
 | `tests/` | Vitest; tests drive the CLI like a player. Keep all tests passing |
 
 Conventions: reachability takes a flow (protocol/port) so ACLs and NAT apply, replies included; routers only listen on their management ports. TypeScript strict; the sim models state, not packets (reachability is computed); fixes are verified by

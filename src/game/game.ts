@@ -1,6 +1,8 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { Team, type TeamState } from './team';
+import type { RunbookSettings } from './runbooks';
 import { dhcpRequest } from '../sim/dhcp';
 import { LATEST_PRINT_DRIVER, LATEST_PRINTER_FIRMWARE, type CableInHand } from './physical';
 import { migratePlacement, PLACEMENT_RANK, placedRank, type PlacementState } from './placement';
@@ -40,6 +42,8 @@ export interface Note {
   body: string;
   /** Sim time of the last edit. */
   updated: number;
+  /** Set when this note is used as a runbook: its triggers and whether employees may use it. */
+  runbook?: RunbookSettings;
 }
 
 export interface SaveFile {
@@ -70,6 +74,7 @@ export interface SaveFile {
   achievements?: AchievementState;
   placement?: { offered: boolean; state: PlacementState | null };
   cableInHand?: CableInHand | null;
+  team?: TeamState;
   ambient: ReturnType<Ambient['exportState']>;
   chat: ChatState;
 }
@@ -121,6 +126,8 @@ export class Game {
   /** Incidents the NOC declared itself. */
   readonly incidents = new IncidentLog();
   readonly achievements = new Achievements();
+  /** Your team (the intern, for now). */
+  readonly team = new Team();
   /** The optional placement shift: offered once on a new game, until taken or declined. */
   placementOffered = true;
   placement: PlacementState | null = null;
@@ -276,6 +283,19 @@ export class Game {
     d.printDriver = { version: LATEST_PRINT_DRIVER, ok: true };
     this.tick(60_000);
     return `Installed print driver ${LATEST_PRINT_DRIVER}. Test page printed.`;
+  }
+
+  /** Real time passing while the game runs (training counts in real time). */
+  realTick(ms: number): void {
+    this.team.tickReal(ms, this.net.time);
+  }
+
+  /** Turns a note into a runbook (or back). */
+  setRunbook(noteId: string, settings: RunbookSettings | null): void {
+    const n = this.notes.find((x) => x.id === noteId);
+    if (!n) return;
+    if (settings) n.runbook = settings;
+    else delete n.runbook;
   }
 
   // ---- placement shift ----
@@ -463,6 +483,7 @@ export class Game {
       achievements: this.achievements.exportState(),
       placement: { offered: this.placementOffered, state: this.placement },
       cableInHand: this.cableInHand,
+      team: this.team.exportState(),
       ambient: this.ambient.exportState(),
       chat: structuredClone(this.chat.state),
     };
@@ -493,6 +514,7 @@ export class Game {
     this.achievements.fresh = [];
     this.placementOffered = save.placement?.offered ?? false;
     this.cableInHand = save.cableInHand ?? null;
+    this.team.importState(save.team);
     this.placement = migratePlacement(save.placement?.state);
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
@@ -565,6 +587,7 @@ export class Game {
       updateArchives(this.net);
       if (this.started) {
         this.queue.update();
+        this.team.update(this);
         this.checkServices(step);
         this.chat.update();
       }
@@ -651,6 +674,7 @@ export class Game {
 
   private endShift(): void {
     this.queue.settleNotices();
+    this.team.endShift(this, this.net.rng);
     this.postAccrued();
     const stats = this.shiftStats();
     // Points are what count. Downtime already drains points while it lasts, so missing the uptime target adds no

@@ -343,6 +343,8 @@ function TicketDetail({ game, ticket: t, onMessage, onSelect }: { game: Game; ti
         </section>
       )}
 
+      <TeamPanel game={game} ticket={t} onMessage={onMessage} />
+
       <div className="td-grid">
         <section className="td-card">
           <h3>Reported by</h3>
@@ -514,6 +516,71 @@ function EscalatePanel({ game, ticket: t, onMessage }: { game: Game; ticket: Tic
         </div>
       )}
       <p className="td-fine">The SLA clock keeps running while they work. They might hand it back if it's beyond them.</p>
+    </section>
+  );
+}
+
+/** Who on your team is on this ticket, assigning it by hand, and the log of what they typed. */
+function TeamPanel({ game, ticket: t, onMessage }: { game: Game; ticket: Ticket; onMessage: (text: string) => void }) {
+  const [who, setWho] = useState('');
+  const [book, setBook] = useState('');
+  const team = game.team;
+  const open = game.queue.isOpen(t);
+  const idle = team.employees.filter((e) => e.status.kind === 'idle');
+  const emp = team.employees.find((e) => e.id === who) ?? idle[0];
+  const books = emp ? team.runbooksFor(emp, game).filter((r) => r.runbook?.enabled) : [];
+  if (!t.assignedTo && !t.runLog && !(open && idle.length && !t.escalation)) return null;
+  return (
+    <section className="team-panel" aria-label="Your team on this ticket">
+      {t.assignedTo && (
+        <p>
+          <strong>{t.assignedTo}</strong> is working this with the runbook "{t.runbook}".
+        </p>
+      )}
+      {!t.assignedTo && open && idle.length > 0 && !t.escalation && emp && (
+        <div className="row-form">
+          <span>Assign to</span>
+          <select value={emp.id} onChange={(e) => setWho(e.target.value)} aria-label="Employee">
+            {idle.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))}
+          </select>
+          <span>with</span>
+          <select value={book} onChange={(e) => setBook(e.target.value)} aria-label="Runbook">
+            <option value="">Choose a runbook...</option>
+            {books.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
+              </option>
+            ))}
+          </select>
+          <button
+            className="secondary small"
+            disabled={!book}
+            onClick={() => {
+              const rb = books.find((r) => r.id === book)!;
+              const err = team.assign(game, emp, t.id, rb);
+              onMessage(err ?? `${emp.name} is on ${t.id} with "${rb.title}".`);
+            }}
+          >
+            Assign
+          </button>
+        </div>
+      )}
+      {t.runLog && (
+        <details className="run-log">
+          <summary>
+            What {t.employee ?? 'they'} typed ({t.runLog.length} lines{t.runLog.some((l) => l.meant !== undefined) ? ', with typos' : ''})
+          </summary>
+          <pre className="doc-code">
+            {t.runLog
+              .map((l) => `> ${l.typed}${l.meant !== undefined ? `      [meant: ${l.meant}]` : ''}${l.output.length ? '\n' + l.output.join('\n') : ''}`)
+              .join('\n')}
+          </pre>
+        </details>
+      )}
     </section>
   );
 }

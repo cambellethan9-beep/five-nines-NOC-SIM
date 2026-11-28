@@ -19,6 +19,7 @@ import {
 } from './scoring';
 import { BASE_POINTS } from './scoring';
 import { GENERATED_SHARE, generatedTemplate, planGenerated } from './generator';
+import type { RunLogEntry } from './runbooks';
 import { canEscalateTo, coworker, COWORKERS, isDelegation, wastesManagersTime, type CoworkerId } from './coworkers';
 import { portShutdown, rebuildDraft, TEMPLATES, type Params, type TicketDraft, type TicketTemplate } from './templates';
 
@@ -75,6 +76,13 @@ export interface Ticket {
    * undefined = nothing to tell (requests, tickets from older saves).
    */
   notifiedAt?: number | null;
+  /** Employee working it (team.ts), and the runbook they're following. */
+  assignedTo?: string;
+  runbook?: string;
+  /** What the employee typed and what the devices answered, last attempt. */
+  runLog?: RunLogEntry[];
+  /** Employee who resolved it. */
+  employee?: string;
 }
 
 interface Pending {
@@ -469,6 +477,7 @@ export class TicketQueue {
   escalationBlocked(t: Ticket, id: CoworkerId): string | null {
     const c = coworker(id);
     if (!this.isOpen(t)) return 'This ticket is closed.';
+    if (t.assignedTo) return `${t.assignedTo} is working on it.`;
     if (t.escalation) return `Already with ${coworker(t.escalation.to).name.split(' ')[0]}.`;
     if (t.seniorAt !== null) return 'Owen is already taking this over.';
     if (!canEscalateTo(c, this.rankIndex)) return `${c.name.split(' ')[0]} doesn't outrank you, and doesn't work for you.`;
@@ -590,6 +599,29 @@ export class TicketQueue {
       respondedAfterMs: t.respondedAt === null ? null : t.respondedAt - t.openedAt,
       proactive: false,
     };
+  }
+
+  /**
+   * An employee resolves a ticket after their runbook worked. Scored like your own fix (speed, SLA, triage) but
+   * without the senior-rank penalty for routine work: that's the point of having staff. Returns the points.
+   */
+  resolveByEmployee(id: string, name: string, note: string): number {
+    const t = this.find(id);
+    const now = this.net.time;
+    if (!this.isOpen(t)) return 0;
+    this.respond(t);
+    t.activity.push({ t: now, who: 'senior', name, text: note });
+    const lines = resolveScore(this.scoreInput(t)).map((l) => ({ ...l, label: `${name}: ${l.label}` }));
+    t.status = 'resolved';
+    t.resolvedAt = now;
+    t.employee = name;
+    t.assignedTo = undefined;
+    if (t.draft.kind === 'incident') {
+      t.notifiedAt = now;
+      t.activity.push({ t: now, who: 'senior', name, text: `Let ${t.draft.reporter.name} know it's working again.` });
+    }
+    this.award(t, lines);
+    return total(lines);
   }
 
   /** Resolve button. Verifies the outcome before closing. */

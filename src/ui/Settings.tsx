@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { applyTheme, DEFAULT_THEME, PRESETS, saveTheme, type Theme } from './theme';
 
 export const HOTKEYS: { key: string; what: string }[] = [
-  { key: '1-6', what: 'Tickets, Chat, Map, Monitor, Logs, Docs' },
-  { key: '7', what: 'Show or hide the console' },
-  { key: '8', what: 'Jump into the console prompt' },
+  { key: '1-7', what: 'Tickets, Chat, Map, Monitor, Logs, Docs, Team' },
+  { key: '8', what: 'Show or hide the console' },
+  { key: '9', what: 'Jump into the console prompt' },
   { key: '/', what: 'Search tickets' },
   { key: 'Esc', what: 'Leave a text box (so the number keys work again)' },
-  { key: 'Alt + 1-8', what: 'Same as the number keys, even while typing' },
+  { key: 'Alt + 1-9', what: 'Same as the number keys, even while typing' },
 ];
 
 export function SettingsDialog({ theme, onChange, onClose, onDeleteDocs }: { theme: Theme; onChange: (t: Theme) => void; onClose: () => void; onDeleteDocs: () => void }) {

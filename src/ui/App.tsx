@@ -18,12 +18,13 @@ import { SettingsDialog } from './Settings';
 import { AchievementsDialog } from './Achievements';
 import { PlacementBanner, PlacementOffer, PlacementResults } from './Placement';
 import { FrontPanel, PrinterPanel } from './FrontPanel';
+import { TeamView } from './TeamView';
 import type { DeclareDraft } from './Incidents';
 import { applyTheme, loadTheme } from './theme';
 
 const TICK_MS = 250;
 
-type View = 'tickets' | 'chat' | 'map' | 'monitor' | 'logs' | 'docs';
+type View = 'tickets' | 'chat' | 'map' | 'monitor' | 'logs' | 'docs' | 'team';
 
 const VIEWS: { id: View; label: string; hint: string }[] = [
   { id: 'tickets', label: 'Tickets', hint: 'Your queue and SLAs' },
@@ -31,7 +32,8 @@ const VIEWS: { id: View; label: string; hint: string }[] = [
   { id: 'map', label: 'Map', hint: 'Topology and devices' },
   { id: 'monitor', label: 'Monitor', hint: 'Health and traffic' },
   { id: 'logs', label: 'Logs', hint: 'Syslog from every device' },
-  { id: 'docs', label: 'Docs', hint: 'Notebook and inherited docs' },
+  { id: 'docs', label: 'Docs', hint: 'Notebook, runbooks, inherited docs' },
+  { id: 'team', label: 'Team', hint: 'Your intern and staff' },
 ];
 
 function shiftClock(ms: number): string {
@@ -110,16 +112,16 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
         return;
       }
       if (typing && !e.altKey) return;
-      if (!typing && e.altKey && !/^Digit[1-8]$/.test(e.code)) return;
-      const digit = /^Digit([1-8])$/.exec(e.code)?.[1];
+      if (!typing && e.altKey && !/^Digit[1-9]$/.test(e.code)) return;
+      const digit = /^Digit([1-9])$/.exec(e.code)?.[1];
       if (digit) {
         e.preventDefault();
         const n = Number(digit);
         if (n <= VIEWS.length) {
           setNoteToOpen(null);
           setView(VIEWS[n - 1].id);
-        } else if (n === 7) setDockOpen((o) => !o);
-        else if (n === 8) {
+        } else if (n === 8) setDockOpen((o) => !o);
+        else if (n === 9) {
           setDockOpen(true);
           window.setTimeout(() => {
             const input = [...document.querySelectorAll<HTMLInputElement>('.terminal-input, .desk-input')].find((i) => i.offsetParent !== null);
@@ -161,7 +163,10 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   useEffect(() => {
     const id = setInterval(() => {
       // Time stands still while the first-day intro or the help tour is open.
-      if (!game.introPending && !helpOpenRef.current) game.tick(TICK_MS * speed);
+      if (!game.introPending && !helpOpenRef.current) {
+        game.tick(TICK_MS * speed);
+        game.realTick(TICK_MS); // training counts real time, not game time
+      }
       setTick((t) => t + 1);
     }, TICK_MS);
     return () => clearInterval(id);
@@ -170,6 +175,12 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   useEffect(() => {
     if (view === 'logs') setSeenLogs(game.net.logs.length);
   }, [view, tick, game]);
+
+  // Team news (pickups, fixes, hand-backs, promotions, training).
+  useEffect(() => {
+    const fresh = game.team.fresh.splice(0);
+    if (fresh.length) say(fresh[fresh.length - 1]);
+  }, [tick, game]);
 
   // Announce achievements as they're earned.
   useEffect(() => {
@@ -290,6 +301,7 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
             {view === 'monitor' && <MonitorView game={game} tick={tick} selected={monitorSel} onSelect={setMonitorSel} onDeclare={declareFrom} />}
             {view === 'logs' && <LogsView game={game} tick={tick} onDeclare={declareFrom} />}
             {view === 'chat' && <ChatView game={game} tick={tick} active={chatSel} onSelect={setChatSel} />}
+            {view === 'team' && <TeamView game={game} tick={tick} onMessage={say} />}
             {view === 'docs' && <DocsView key={noteToOpen ?? 'docs'} game={game} tick={tick} openNote={noteToOpen ?? undefined} />}
           </div>
 
