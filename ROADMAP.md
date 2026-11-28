@@ -133,7 +133,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 
 **Wave A: CCNA core (Phase 2, next).** Without these, CCNA-level players run out of things to learn.
 - [x] Output filters: `| include`, `| exclude`, `| section`, `| begin`
-- [ ] `show mac address-table`, `show interfaces counters errors`, duplex mismatch symptoms (CRC, late collisions)
+- [x] `show mac address-table`, `show interfaces counters errors`, duplex mismatch symptoms (CRC, late collisions)
 - [x] **ACLs:** standard, extended, named; wildcard masks; `ip access-group in/out`; `access-class` on vty lines; hit counters
 - [x] **NAT/PAT:** inside/outside, overload, static NAT for servers (replaces the ISP routing stand-in)
 - [x] **DHCP:** IOS DHCP server, pools, exclusions, `ip helper-address`; PCs switch to DHCP clients (169.254.x.x when it fails)
@@ -146,15 +146,15 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] **Port security:** max MACs, sticky, violation modes, err-disabled, `errdisable recovery`
 - [x] **EtherChannel:** LACP/PAgP, mismatched members, suspended ports
 - [x] **VTP:** modes, domain, the revision-number wipe
-- [ ] Hardening: `service password-encryption`, `exec-timeout`, `login block-for`, login/exec banners, `security passwords min-length`
-- [ ] Config backup and restore: `copy run tftp`, `archive`, `configure replace`
+- [x] Hardening: `service password-encryption`, `exec-timeout`, `login block-for`, login/exec banners, `security passwords min-length`
+- [x] Config backup and restore: `copy run tftp`, `archive`, `configure replace`
 
 **Wave B: multi-site and security (Phase 3-4, as the network grows past one building).**
 - [ ] **Site-to-site VPN** (IPsec, GRE over IPsec) and WAN links between facilities
 - [ ] **HSRP** first-hop redundancy; dual ISP circuits
 - [x] **BGP basics (built early):** eBGP to the ISP, dual-homing, prefix filtering (beyond CCNA, needed at ISP scale)
 - [ ] **IPv6:** addressing, SLAAC, static routes, OSPFv3
-- [ ] **DHCP snooping and dynamic ARP inspection** (rogue DHCP server tickets)
+- [x] **DHCP snooping and dynamic ARP inspection** (rogue DHCP server tickets)
 - [ ] **AAA:** local, RADIUS/TACACS+, fallback when the server is down; 802.1X port authentication
 - [ ] **Dedicated firewall appliances** (NetSmart firewall line): zones, rule sets, NAT, site-to-site and remote-access VPN,
       high-availability pairs, logging; bought with the budget, sized by throughput
@@ -174,8 +174,8 @@ error messages, the faults it can cause, and ticket templates that use it.
 ## Phase 2: Procedural scenarios and Wave A
 **Goal:** effectively unlimited, varied incidents, built on the Wave A configuration features.
 
-- [ ] **Fault library framework (#21):** each fault = preconditions + injection + symptoms + ticket templates + verification
-- [ ] **CCNA core configuration, built in this order** (Wave A; each with its `show` commands, IOS errors, faults and tickets):
+- [x] **Fault library framework (#21):** each fault = preconditions + injection + symptoms + ticket templates + verification (the generator: src/game/faults.ts + generator.ts)
+- [x] **CCNA core configuration, built in this order** (Wave A; each with its `show` commands, IOS errors, faults and tickets):
   1. [x] Output filters: `| include`, `| exclude`, `| section`, `| begin`, `| count` (exec, `do`, over SSH; `?` after the pipe)
   2. [x] ACLs: standard, extended, named (sub-mode, sequence numbers, remarks); wildcard masks (IOS normalizing included);
          `ip access-group in/out`; `access-class` on vty lines; hit counters; `show ip interface`; enforced on real flows
@@ -284,7 +284,7 @@ error messages, the faults it can cause, and ticket templates that use it.
   - Endpoint: APIPA address, wrong DNS on a PC
   - Upstream ISP outage (prove it with traceroute, then call the carrier with the circuit ID)
   - Red herrings, cascading failures with one root cause, an undocumented coworker change
-- [ ] **Hard (220-point) ticket templates** (none exist yet)
+- [x] **Hard (220-point) ticket templates** (none exist yet) (many exist now)
 - [x] **Generator (approved Nov 2026, `src/game/faults.ts` + `generator.ts`):** 24 fault building blocks (desk, access
       port, trunk, VLAN, SVI, DHCP relay, ACL, server ports, printers, default route) placed where they can really
       happen; ticket text, subject and true priority come from the real impact on real users, in the reporter's
@@ -298,7 +298,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [ ] **Skill radar (#27):** incidents tagged by category, scored on performance
 - [ ] **Stale docs (#47a, #50):** network changes invalidate notes and predecessor runbooks
 
-- [ ] **Recurring incidents are normal:** like a real NOC, most tickets come from a handful of common problems (a shut
+- [x] **Recurring incidents are normal:** like a real NOC, most tickets come from a handful of common problems (a shut (generator weights the regulars)
       port, an unplugged cable, a wrong VLAN, a printer, a driver). The generator weights a few "regulars" heavily and
       mixes in rarer ones, so repeats in a shift are expected; variety comes from who, where and how it presents
 
@@ -417,7 +417,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [ ] **Hire NOC techs (#45, #45a):** salary vs skill; juniors make mistakes; they act on *your* ticket priorities
 - [ ] **Skills per tech:** each tech has skill levels per category (switching, routing, ACLs, wireless, cloud...) that decide
       which tickets they can handle and how likely they are to make it worse
-- [ ] **Training:** "Train Dave on ACLs." Choose a tech and a topic; pick the method:
+- [x] **Training:** "Train Dave on ACLs." Choose a tech and a topic; pick the method: (built as real-time NetSmart certificates; topic skills proposed)
   - Paid course: costs money, Dave is unavailable for a few hours of game time, big skill gain
   - Shadowing you: free, but you work slower while you teach
   - Lab practice: cheap and slow, small gains
