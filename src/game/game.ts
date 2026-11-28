@@ -1,6 +1,8 @@
 // Game state on top of the simulation: where the player is standing, console sessions,
 // monitoring history, background activity and the documentation they inherited.
 
+import { Breakage, type BreakageState } from './breakage';
+import { replaceNic } from './desk';
 import { Team, type TeamState } from './team';
 import type { RunbookSettings } from './runbooks';
 import { dhcpRequest } from '../sim/dhcp';
@@ -76,6 +78,7 @@ export interface SaveFile {
   cableInHand?: CableInHand | null;
   team?: TeamState;
   ambient: ReturnType<Ambient['exportState']>;
+  breakage?: BreakageState;
   chat: ChatState;
 }
 
@@ -100,6 +103,8 @@ export interface ShiftReport {
   streakBonus?: number;
   /** Promotion progress after this shift. */
   promotion?: { pointsPerShift: number; shifts: number; done: number; qualified: boolean; promotedTo?: string };
+  /** Hardware that failed this shift, and running MTBF/MTTR in game ms. */
+  hardware?: { failures: number; mtbf: number | null; mttr: number | null };
 }
 
 export interface Sample {
@@ -128,6 +133,8 @@ export class Game {
   readonly achievements = new Achievements();
   /** Your team (the intern, for now). */
   readonly team = new Team();
+  /** Hardware wearing out in real time. */
+  readonly breakage: Breakage;
   /** The optional placement shift: offered once on a new game, until taken or declined. */
   placementOffered = true;
   placement: PlacementState | null = null;
@@ -163,6 +170,7 @@ export class Game {
     this.office = buildOffice(seed);
     this.net = this.office.net;
     this.location = this.office.home;
+    this.breakage = new Breakage(seed);
     this.queue = new TicketQueue(this.net, this.office, this.net.rng, () => this.shiftStart + SHIFT_MS);
     this.chat = new Chat(this.net, this.office, this.net.rng, () => this.health.perUser, undefined, () => {
       const open = this.queue.openTickets().filter((t) => !t.escalation && t.seniorAt === null);
@@ -276,6 +284,26 @@ export class Game {
     return `Installing firmware ${LATEST_PRINTER_FIRMWARE}. The printer restarts and is offline for about 2 minutes.`;
   }
 
+  /** At a PC: swap in a spare network card. */
+  replaceNicAt(pcId: string): string {
+    if (this.location !== pcId) return 'You have to be at the PC.';
+    const msg = replaceNic(this.net, this.net.device(pcId));
+    this.tick(10 * 60_000);
+    return msg;
+  }
+
+  /** At a switch: swap the patch cable in this port for a new one. */
+  replaceCableAt(sw: string, port: string): string {
+    if (this.location !== sw) return 'You have to be at the switch.';
+    const link = this.net.linkAt(sw, port);
+    if (!link) return 'There is no cable in that port.';
+    const was = link.cable;
+    link.cable = 'ok';
+    this.net.commit();
+    this.tick(2 * 60_000);
+    return was === 'cut' ? 'Swapped in a new patch cable. The link light comes on.' : 'Swapped in a new patch cable. Nothing changed: the old one was fine.';
+  }
+
   /** At a PC: reinstall the office printer driver. */
   updatePrintDriver(pcId: string): string {
     if (this.location !== pcId) return 'You have to be at the PC.';
@@ -320,6 +348,7 @@ export class Game {
 
   /** The placement shift is over: score it, have Owen tidy up what's left, and put career points back. */
   private endPlacement(): void {
+    this.breakage.stopClock();
     const p = this.placement!;
     this.queue.settleNotices();
     this.postAccrued();
@@ -484,6 +513,7 @@ export class Game {
       placement: { offered: this.placementOffered, state: this.placement },
       cableInHand: this.cableInHand,
       team: this.team.exportState(),
+      breakage: this.breakage.exportState(),
       ambient: this.ambient.exportState(),
       chat: structuredClone(this.chat.state),
     };
@@ -515,6 +545,7 @@ export class Game {
     this.placementOffered = save.placement?.offered ?? false;
     this.cableInHand = save.cableInHand ?? null;
     this.team.importState(save.team);
+    this.breakage.importState(save.breakage);
     this.placement = migratePlacement(save.placement?.state);
     this.ambient.importState(save.ambient);
     this.chat.state = save.chat;
@@ -586,6 +617,7 @@ export class Game {
       updateQuietMode(this.net);
       updateArchives(this.net);
       if (this.started) {
+        this.breakage.update(this.net, this.queue, this.queue.shift);
         this.queue.update();
         this.team.update(this);
         this.checkServices(step);
@@ -673,6 +705,7 @@ export class Game {
   }
 
   private endShift(): void {
+    this.breakage.stopClock();
     this.queue.settleNotices();
     this.team.endShift(this, this.net.rng);
     this.postAccrued();
@@ -706,7 +739,9 @@ export class Game {
         promotion.promotedTo = q.rank.name;
       }
     }
-    this.report = { ...stats, points, bonus, lifetimePoints: q.lifetimePoints, streak: q.streak, streakBonus: reliability, promotion };
+    const hw = this.breakage.stats();
+    const hardware = { failures: this.breakage.log.filter((b) => b.shift === q.shift).length, mtbf: hw.mtbf, mttr: hw.mttr };
+    this.report = { ...stats, points, bonus, lifetimePoints: q.lifetimePoints, streak: q.streak, streakBonus: reliability, promotion, hardware };
   }
 
   /** Starts the next shift on the same network. Open tickets carry over. */

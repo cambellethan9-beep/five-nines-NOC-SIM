@@ -20,6 +20,10 @@ export interface Fault {
   weight: number;
   /** Fixed at the desk (or by talking the user through it), not from a console. */
   desk?: boolean;
+  /** Worn-out or failed hardware: only the breakage clock (breakage.ts) causes these, not the ticket generator. */
+  hardware?: boolean;
+  /** Hardware only: the broken part has been replaced or worked around (for repair times). */
+  repaired?(net: Network, site: Site): boolean;
   /** Places it can happen right now. `people` are PCs free to be involved. */
   sites(net: Network, office: Office, people: string[]): Site[];
   /** PCs it would hurt (a sample is enough for office-wide faults). */
@@ -153,6 +157,7 @@ const cableBad: Fault = {
   difficulty: 'easy',
   weight: 4,
   desk: true,
+  hardware: true,
   sites: (net, _o, people) => pcSites(net, people, (pc) => net.linkAt(pc, NIC)?.cable === 'ok'),
   victims: (_n, _o, site) => [s(site.pc)],
   resources: (site) => [`pc:${site.pc}`, `cable:${site.pc}`],
@@ -166,6 +171,7 @@ const cableBad: Fault = {
     net.commit();
     renew(net, [s(site.pc)]);
   },
+  repaired: (net, site) => net.linkAt(s(site.pc), NIC)?.cable !== 'cut',
   explain: () => 'The patch cable was crushed under a chair wheel. Reseating didn\'t help; replacing the cable did.',
   hint: 'Plugged in at both ends, port configured fine, but no link. Look at the cable itself.',
 };
@@ -616,6 +622,103 @@ const wrongNextHop: Fault = {
   hint: 'The router has a default route. Does its next hop exist?',
 };
 
+// ---------------------------------------------------------------- hardware that wears out
+
+const INFRA_LINKS = [
+  { dev: 'acc1', port: 'GigabitEthernet0/1', what: "CR-ACC1's uplink to the core", scope: 'floor1' },
+  { dev: 'acc2', port: 'GigabitEthernet0/1', what: "CR-ACC2's uplink to the core", scope: 'floor2' },
+  { dev: 'core1', port: 'FastEthernet0/2', what: 'the cable from CR-CORE1 to CR-FS01', scope: 'staff' },
+  { dev: 'core1', port: 'FastEthernet0/3', what: 'the cable from CR-CORE1 to CR-APP01', scope: 'staff' },
+  { dev: 'core1', port: 'FastEthernet0/24', what: 'the cable between CR-CORE1 and CR-RTR1', scope: 'staff' },
+  { dev: 'acc1', port: 'FastEthernet0/20', what: "the 1st floor printer's cable", scope: 'floor1' },
+  { dev: 'acc2', port: 'FastEthernet0/20', what: "the 2nd floor printer's cable", scope: 'floor2' },
+];
+
+const infraCable: Fault = {
+  id: 'infra-cable',
+  difficulty: 'moderate',
+  weight: 1,
+  hardware: true,
+  sites: (net) =>
+    INFRA_LINKS.filter((l) => net.linkAt(l.dev, l.port)?.cable === 'ok' && net.isUp(l.dev, l.port)).map((l) => ({ dev: l.dev, port: l.port, what: l.what, scope: l.scope })),
+  victims: (net, office, site) => sample(site.scope === 'staff' ? staff(office) : floorPeople(net, office, site.scope === 'floor1' ? 'acc1' : 'acc2'), 6),
+  resources: (site) => [`cable:${site.dev}:${site.port}`],
+  inject: (net, site) => {
+    net.linkAt(s(site.dev), s(site.port))!.cable = 'cut';
+    net.commit();
+  },
+  fix: (net, site) => {
+    const l = net.linkAt(s(site.dev), s(site.port));
+    if (l) l.cable = 'ok';
+    net.commit();
+  },
+  repaired: (net, site) => net.linkAt(s(site.dev), s(site.port))?.cable !== 'cut',
+  explain: (_n, site) => `${String(site.what).charAt(0).toUpperCase() + String(site.what).slice(1)} failed: the link was down at both ends with nothing wrong in the config (${swName(site.dev)} ${short(s(site.port))} notconnect). Replacing the patch cable fixed it.`,
+  hint: 'Several people, one direction of the network. Which link is down, and is anything wrong with its config?',
+};
+
+const nicDead: Fault = {
+  id: 'nic-dead',
+  difficulty: 'easy',
+  weight: 1,
+  desk: true,
+  hardware: true,
+  sites: (net, _o, people) => pcSites(net, people, (pc) => !!net.device(pc).nic && !net.device(pc).nic!.failed && !net.device(pc).nic!.disabled && net.device(pc).nic!.driver === 'ok'),
+  victims: (_n, _o, site) => [s(site.pc)],
+  resources: (site) => [`pc:${site.pc}`, `nic:${site.pc}`],
+  inject: (net, site) => {
+    net.device(s(site.pc)).nic!.failed = true;
+    net.commit();
+  },
+  fix: (net, site) => {
+    Object.assign(net.device(s(site.pc)).nic!, { failed: false, driver: 'ok', version: CURRENT_NIC_DRIVER, disabled: false });
+    net.commit();
+    renew(net, [s(site.pc)]);
+  },
+  repaired: (net, site) => !net.device(s(site.pc)).nic?.failed,
+  explain: () => "The PC's network card died (Device Manager: Code 43). Cable and switch port were fine. Swapping in a spare card fixed it.",
+  hint: 'The switch port is down, the cable is good. What does the PC think of its own network card?',
+};
+
+const portDead: Fault = {
+  id: 'port-dead',
+  difficulty: 'moderate',
+  weight: 1,
+  hardware: true,
+  sites: (net, _o, people) =>
+    pcSites(net, people, (_pc, sw, port) => !net.device(sw).deadPorts?.includes(port) && Object.keys(net.device(sw).hardware).some((p) => p.startsWith('FastEthernet') && !net.linkAt(sw, p) && !net.device(sw).deadPorts?.includes(p))),
+  victims: (_n, _o, site) => [s(site.pc)],
+  resources: (site) => [`port:${site.sw}:${site.port}`, `pc:${site.pc}`],
+  inject: (net, site) => {
+    const d = net.device(s(site.sw));
+    d.deadPorts = [...(d.deadPorts ?? []), s(site.port)];
+    net.commit();
+  },
+  fix: (net, site) => {
+    // A senior moves the cable to a free port with the same settings. The dead port stays dead.
+    const sw = net.device(s(site.sw));
+    const free = Object.keys(sw.hardware).find((p) => p.startsWith('FastEthernet') && !net.linkAt(sw.id, p) && !sw.deadPorts?.includes(p));
+    if (!free) return;
+    const old = sw.running.interfaces[s(site.port)];
+    const nu = sw.running.interfaces[free];
+    if (old.switchport && nu.switchport) nu.switchport = { ...structuredClone(old.switchport) };
+    nu.shutdown = false;
+    nu.description = old.description;
+    net.disconnect(s(site.pc), NIC);
+    net.connect(s(site.pc), NIC, sw.id, free);
+    site.moved = free;
+    net.commit();
+    renew(net, [s(site.pc)]);
+  },
+  repaired: (net, site) => {
+    const peer = net.peerOf(s(site.pc), NIC);
+    return !!peer && !net.device(peer.device).deadPorts?.includes(peer.iface);
+  },
+  explain: (_n, site) =>
+    `${swName(site.sw)} ${short(s(site.port))} died: no link with a good cable and a good PC, and nothing wrong in its config. The fix is moving the desk's patch cable to a free port and configuring it the same way (VLAN 10, PortFast), then relabeling it.`,
+  hint: 'Cable fine, PC fine, config fine, still no link. Try the cable in another port.',
+};
+
 export const FAULTS: Fault[] = [
   portShut,
   wrongVlan,
@@ -641,6 +744,9 @@ export const FAULTS: Fault[] = [
   printerCable,
   defaultRoute,
   wrongNextHop,
+  infraCable,
+  nicDead,
+  portDead,
 ];
 
 export function faultById(id: string): Fault {

@@ -294,7 +294,14 @@ error messages, the faults it can cause, and ticket templates that use it.
       weighting, more building blocks (routing protocols, NAT, security features)
 - [x] **Tell the user it's fixed:** a resolved incident leaves its reporter idle (draining like an outage) until you
       notify them directly or announce to everyone; they chase you in chat; coworkers notify on their own fixes
-- [ ] **Real-time breakage (#2):** the network degrades on its own; **MTTR / MTBF** tracked
+- [x] **Real-time breakage (#2):** hardware wears out on its own clock (`src/game/breakage.ts`), separate from the
+      ticket generator and ignoring the rank's ticket limit (hardware doesn't wait). Realistic and average: random
+      (Poisson) failures at 0.005 per cabled link per shift, so the ~30-link office sees about one every 6-7 shifts and
+      a big network sees them constantly. Mix: 70% desk patch cable, 20% uplink/server/printer cable, 7% a PC's NIC
+      dies (Device Manager Code 43, replace the card at the desk, 10 min), 3% a switch port dies (move the cable to a
+      free port and configure it the same). Repairs: "Replace cable" on the switch front panel (2 min), new NIC at the
+      desk. **MTBF** (time on shift / failures) and **MTTR** (failure to part replaced) in Monitor and the shift report.
+      Later: optics, PSUs, fans, whole switches "once in a blue moon" scaled by network size (Phase 3 hardware)
 - [ ] **Skill radar (#27):** incidents tagged by category, scored on performance
 - [ ] **Stale docs (#47a, #50):** network changes invalidate notes and predecessor runbooks
 
@@ -520,5 +527,7 @@ error messages, the faults it can cause, and ticket templates that use it.
 ## Open questions
 - Optional in-browser LLM for chat later (WebLLM, needs WebGPU and a large download): yes/no
 - Release after Phase 2 (early access) or after Phase 6?
-- Downtime drain scale: per user per service (current), per user, or halved?
-- 10× speed: remove before launch, or keep it but exclude it from healthy-network income?
+- ~~Downtime drain scale~~ decided Nov 2026: keep it (2 per affected user per service per minute, so 10 a minute for
+  someone with nothing working)
+- ~~10× speed~~ decided Nov 2026: a 1×-100× slider (logarithmic). Income and drain are per game minute, so speed
+  doesn't change what a shift is worth

@@ -1,3 +1,4 @@
+import { formatDuration } from './MonitorView';
 import type { ShiftReport } from '../game/game';
 
 function pct(n: number, digits = 1): string {
@@ -63,6 +64,16 @@ export function ShiftReportDialog({ report, onNext }: { report: ShiftReport; onN
               <td className="num muted">{report.streak ?? 0} in a row</td>
               <td />
             </tr>
+            {report.hardware && (
+              <tr>
+                <td>Hardware failures</td>
+                <td className="num">{report.hardware.failures}</td>
+                <td className="num muted">
+                  MTBF {formatDuration(report.hardware.mtbf)} · MTTR {formatDuration(report.hardware.mttr)}
+                </td>
+                <td />
+              </tr>
+            )}
             <tr className="score-total">
               <td>Shift score</td>
               <td className="num">{report.points}</td>

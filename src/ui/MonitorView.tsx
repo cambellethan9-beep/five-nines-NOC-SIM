@@ -99,6 +99,7 @@ export function MonitorView({ game, tick, selected, onSelect, onDeclare }: Props
             );
           })}
         </ul>
+        <HardwareStats game={game} />
       </nav>
 
       <section className="mon-detail" aria-label={`${current.running.hostname} details`}>
@@ -199,6 +200,34 @@ export function MonitorView({ game, tick, selected, onSelect, onDeclare }: Props
         </div>
               </>)}
       </section>
+    </div>
+  );
+}
+
+/** Game minutes as "45 min" or "6 h 10 min". */
+export function formatDuration(ms: number | null): string {
+  if (ms === null) return '-';
+  const m = Math.round(ms / 60_000);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+/** Failures logged by the breakage clock: how often hardware dies and how fast it gets fixed. */
+function HardwareStats({ game }: { game: Props['game'] }) {
+  const st = game.breakage.stats();
+  return (
+    <div className="hw-stats" aria-label="Hardware reliability">
+      <h3 className="side-title">Hardware</h3>
+      <dl>
+        <dt title="Mean time between failures, in game time on shift">MTBF</dt>
+        <dd>{st.failures ? formatDuration(st.mtbf) : 'no failures yet'}</dd>
+        <dt title="Mean time to repair: from the failure to the part being replaced or worked around">MTTR</dt>
+        <dd>{formatDuration(st.mttr)}</dd>
+        <dt>Failures</dt>
+        <dd>
+          {st.failures}
+          {st.open > 0 && <span className="warn-text"> ({st.open} not repaired)</span>}
+        </dd>
+      </dl>
     </div>
   );
 }

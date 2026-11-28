@@ -273,13 +273,20 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
           <button className={`ghost small-ghost pause-btn ${paused ? 'on' : ''}`} onClick={() => setPaused((x) => !x)} title="Pause (P)">
             {paused ? 'Resume' : 'Pause'}
           </button>
-          <div className="speed" role="group" aria-label="Simulation speed">
-            {[1, 10].map((s) => (
-              <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>
-                {s}×
-              </button>
-            ))}
-          </div>
+          <label className="speed" title="Game speed, 1× to 100×. Double-click to go back to 1×." onDoubleClick={() => setSpeed(1)}>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              // Logarithmic: the left half is 1× to 10×, the right half 10× to 100×.
+              value={Math.round(Math.log10(speed) * 50)}
+              onChange={(e) => setSpeed(Math.max(1, Math.min(100, Math.round(10 ** (Number(e.target.value) / 50)))))}
+              aria-label="Simulation speed"
+              aria-valuetext={`${speed} times`}
+            />
+            <span className={`speed-val ${speed > 1 ? 'on' : ''}`}>{speed}×</span>
+          </label>
         </div>
       </header>
 

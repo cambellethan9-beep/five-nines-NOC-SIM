@@ -72,7 +72,8 @@ export function planGenerated(ctx: TemplateContext, wanted: Difficulty, rankInde
   // Config changes need someone who can log in. Once outsiders are locked out, only Jordan makes changes, and he
   // rarely breaks things, so config faults get much less common.
   const outsidersIn = (dev: string) => ACTORS.some((a) => a.user !== 'jreyes' && canMakeChange(ctx.net, a.user, dev));
-  const options = FAULTS.map((f) => ({ f, sites: f.sites(ctx.net, ctx.office, people) }))
+  // Worn-out hardware comes from the breakage clock (breakage.ts), not from here.
+  const options = FAULTS.filter((f) => !f.hardware).map((f) => ({ f, sites: f.sites(ctx.net, ctx.office, people) }))
     .map((x) => ({ ...x, sites: x.f.configOn ? x.sites.filter((s) => outsidersIn(x.f.configOn!(s)) || rng.chance(0.3)) : x.sites }))
     .filter((x) => x.sites.length);
   const primary = pickWeighted(rng, options.map((x) => ({ item: x, weight: x.f.weight * closeness(x.f.difficulty, wanted) })));
@@ -106,6 +107,22 @@ export function planGenerated(ctx: TemplateContext, wanted: Difficulty, rankInde
   const outsiders = able.filter(({ a }) => a.user !== 'jreyes');
   const actor = !hasConfig ? -1 : outsiders.length && rng.chance(0.75) ? rng.pick(outsiders).i : (able.find(({ a }) => a.user === 'jreyes')?.i ?? 0);
   return { atoms: JSON.stringify(atoms), pcId, diff, herring, actor, variant: rng.int(0, 2) };
+}
+
+/**
+ * Plans a hardware failure from the breakage clock: one fault, at a random place it can happen, reported by someone
+ * it really hurts. No red herrings or culprits: nobody did this, things just wear out.
+ */
+export function planHardware(ctx: TemplateContext, faultId: string): Params | null {
+  const f = faultById(faultId);
+  const people = freePeople(ctx).map((p) => p.pcId);
+  if (!people.length) return null;
+  const sites = f.sites(ctx.net, ctx.office, people);
+  if (!sites.length) return null;
+  const site = ctx.rng.pick(sites);
+  const reporters = f.victims(ctx.net, ctx.office, site).filter((pc) => people.includes(pc));
+  if (!reporters.length) return null;
+  return { atoms: JSON.stringify([{ id: f.id, site }]), pcId: ctx.rng.pick(reporters), diff: f.difficulty, herring: -1, actor: -1, variant: ctx.rng.int(0, 2), hardware: true };
 }
 
 // ---------------------------------------------------------------- ticket text
@@ -155,8 +172,8 @@ function describe(p: Person, lost: string[], scope: number, variant: number, her
 
 /** What a helpful user notices on their own screen for desk-side faults. */
 function deskNoteFor(atoms: Atom[]): string | null {
-  if (atoms.some((a) => a.id === 'cable-out')) return 'Windows says "Network cable unplugged".';
-  if (atoms.some((a) => a.id === 'nic-disabled' || a.id === 'nic-driver')) return 'The network icon has a red X on it.';
+  if (atoms.some((a) => a.id === 'cable-out' || a.id === 'cable-bad' || a.id === 'port-dead')) return 'Windows says "Network cable unplugged".';
+  if (atoms.some((a) => a.id === 'nic-disabled' || a.id === 'nic-driver' || a.id === 'nic-dead')) return 'The network icon has a red X on it.';
   if (atoms.some((a) => a.id === 'apipa' || a.id === 'helper-gone' || a.id === 'access-vlan' || a.id === 'access-port-trunk')) return 'It says "Unidentified network".';
   if (atoms.some((a) => a.id === 'print-driver')) return 'Printing gives error 0x0000011b.';
   return null;

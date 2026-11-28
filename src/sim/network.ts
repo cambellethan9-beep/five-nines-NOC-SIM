@@ -373,17 +373,19 @@ export class Network {
 
   /** A host's adapter only passes traffic with a working, enabled driver. */
   nicWorking(device: Device): boolean {
-    return !device.nic || (device.nic.driver === 'ok' && !device.nic.disabled);
+    return !device.nic || (device.nic.driver === 'ok' && !device.nic.disabled && !device.nic.failed);
   }
 
   private physicalLinkUp(device: Device, ifc: InterfaceConfig): boolean {
     if (!this.isOnline(device) || ifc.shutdown || !this.nicWorking(device)) return false;
     const link = this.linkAt(device.id, ifc.name);
     if (!link || link.cable !== 'ok') return false;
+    if (device.deadPorts?.includes(ifc.name)) return false;
     const peerEnd = link.a.device === device.id ? link.b : link.a;
     const peer = this.device(peerEnd.device);
     const peerIfc = peer.running.interfaces[peerEnd.iface];
     if (!this.isOnline(peer) || !peerIfc || peerIfc.shutdown || !this.nicWorking(peer)) return false;
+    if (peer.deadPorts?.includes(peerEnd.iface)) return false;
     // Two hard-coded, different speeds never come up.
     if (ifc.speed !== 'auto' && peerIfc.speed !== 'auto' && ifc.speed !== peerIfc.speed) return false;
     return true;

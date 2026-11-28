@@ -108,6 +108,11 @@ export function FrontPanel({ game, deviceId, onMessage }: { game: Game; deviceId
                   Unplug cable
                 </button>
               )}
+              {selCabled && (
+                <button className="secondary small" onClick={() => onMessage(game.replaceCableAt(d.id, sel))} disabled={!!hand}>
+                  Replace cable
+                </button>
+              )}
               {!selCabled && hand && (
                 <button className="primary small" onClick={() => onMessage(game.plugPort(d.id, sel))}>
                   Plug the cable in here

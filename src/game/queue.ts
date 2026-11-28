@@ -328,7 +328,23 @@ export class TicketQueue {
     return true;
   }
 
-  private context() {
+  /**
+   * Breaks something that wore out (breakage.ts) with a plan from planHardware. It ignores the rank's ticket limit:
+   * hardware doesn't wait for you to be free. Returns false if it turned out to hurt nobody (then nothing changes).
+   */
+  startGenerated(params: Params, reportDelayMs: number): boolean {
+    const draft = generatedTemplate.build(this.context(), params);
+    draft.inject();
+    if (draft.check()) {
+      draft.fix();
+      return false;
+    }
+    const now = this.net.time;
+    this.pending.push({ draft, faultAt: now, reportAt: now + reportDelayMs, nextCheck: now + 15_000 });
+    return true;
+  }
+
+  context() {
     const active = new Set<string>();
     for (const p of this.pending) active.add(p.draft.templateId);
     for (const t of this.openTickets()) active.add(t.draft.templateId);

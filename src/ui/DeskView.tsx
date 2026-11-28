@@ -110,11 +110,19 @@ export function DeskView({ game, pcId, tick, visible }: { game: Game; pcId: stri
                       <li>
                         <span className="dm-group">▾ Network adapters</span>
                         <ul>
-                          <li className={`dm-dev ${nic.driver === 'outdated' ? 'warn' : nic.disabled ? 'off' : ''}`}>
-                            {nic.driver === 'outdated' ? '⚠ ' : nic.disabled ? '⬇ ' : ''}
+                          <li className={`dm-dev ${nic.driver === 'outdated' || nic.failed ? 'warn' : nic.disabled ? 'off' : ''}`}>
+                            {nic.driver === 'outdated' || nic.failed ? '⚠ ' : nic.disabled ? '⬇ ' : ''}
                             {ADAPTER_NAME}
+                            {nic.failed && ' (Code 43: Windows has stopped this device because it has reported problems.)'}
                           </li>
                         </ul>
+                      </li>
+                    )}
+                    {nic.failed && (
+                      <li>
+                        <button className="secondary small" onClick={() => setResult(game.replaceNicAt(pcId))}>
+                          Replace the network card (about 10 min)
+                        </button>
                       </li>
                     )}
                     <li>

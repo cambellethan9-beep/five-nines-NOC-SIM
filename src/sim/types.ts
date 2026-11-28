@@ -337,6 +337,8 @@ export interface Device {
   macClearedAt?: number;
   /** DHCP snooping bindings (learned from DHCP through this switch), keyed by MAC. */
   snoopBindings?: Record<string, SnoopBinding>;
+  /** Switch ports whose hardware has died: no link, whatever is plugged in. */
+  deadPorts?: string[];
   /** Labels stuck above switch ports (physical: the config doesn't change them). */
   portLabels?: Record<string, string>;
   /** Printer firmware version. */
@@ -382,6 +384,8 @@ export interface NicState {
   version: string;
   /** Disabled by the user in Windows. */
   disabled: boolean;
+  /** The card itself has died (hardware): only replacing it helps. */
+  failed?: boolean;
 }
 
 export const CURRENT_NIC_DRIVER = '4.2.1';

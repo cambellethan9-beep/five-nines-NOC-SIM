@@ -7,7 +7,7 @@ multi-site networks, cloud vs on-prem, seasons, then accounts and a $3/month sub
 
 **Read `ROADMAP.md` first.** It is the source of truth for scope, phase order and every agreed decision.
 Phases 0 and 1 are done. Phase 2's CCNA core configuration list (items 1-9: filters, ACLs, NAT, IOS DHCP/DNS,
-syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) is done. **Next: the rest of Phase 2** (skill radar, stale docs, more generator building blocks) in the order written there; propose before building. Riverside (multi-site) stays locked
+syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) and real-time breakage are done. **Next: the rest of Phase 2** (skill radar, stale docs, more generator building blocks) in the order written there; propose before building. Riverside (multi-site) stays locked
 until a rank above NOC Manager.
 
 ## The owner and how to work with them
@@ -37,7 +37,10 @@ until a rank above NOC Manager.
   Jordan and Owen can be assigned tickets at those ranks (delegation, full base points, no penalty).
 - **Tickets in play at once:** 1 / 2 / 3 / 4 / unlimited by rank; 1.5-4 min breather.
 - **Healthy-network income:** +1 point every 2 game seconds while nothing is broken and no incident is open.
-- **Downtime drain:** 2 points per affected user per service per minute (scale is an open question).
+- **Downtime drain:** 2 points per affected user per service per minute (10/min for someone with nothing working). Kept as is.
+- **Speed:** 1×-100× slider (log scale). **Hardware breakage** (`breakage.ts`): own clock, 0.005 failures per link per shift;
+  70% desk cable, 20% infra cable, 7% NIC, 3% switch port; MTBF/MTTR in Monitor and the shift report. Hardware fault
+  atoms (`hardware: true`) are never picked by the ticket generator.
 - Changing consoles (walking) costs 30 s of game time; SSH from NOC-PC is free. Inherited devices trust the NOC-PC key
   (`ssh nocadmin@<ip>`, no password); default username `nocadmin`.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
@@ -54,8 +57,7 @@ until a rank above NOC Manager.
   Owen gives one `draft.hint` per ticket in chat. Every ticket template needs `explain` and `hint`.
 
 ## Open questions (see the end of ROADMAP.md)
-Downtime drain scale; whether the
-10× speed button ships (it inflates healthy-network income); release timing.
+Release timing.
 
 ## Code layout
 | Path | What |

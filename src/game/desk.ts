@@ -16,7 +16,7 @@ export type NetStatus = 'connected' | 'no-internet' | 'unidentified' | 'unplugge
 export function deskStatus(net: Network, pc: Device): NetStatus {
   if (!pc.powered) return 'asleep';
   const nic = pc.nic;
-  if (nic && (nic.driver === 'missing' || nic.disabled)) return 'no-adapter';
+  if (nic && (nic.driver === 'missing' || nic.disabled || nic.failed)) return 'no-adapter';
   const link = net.linkAt(pc.id, NIC);
   if (!link || link.cable === 'unplugged') return 'unplugged';
   if (!net.isUp(pc.id, NIC)) return 'disconnected';
@@ -77,6 +77,17 @@ export function replaceCable(net: Network, pc: Device): string {
   link.cable = 'ok';
   net.commit();
   return was === 'cut' ? 'Swapped in a fresh patch cable. The link light comes on.' : 'Swapped in a fresh patch cable.';
+}
+
+/** Swaps in a new network card (a spare from the IT closet). */
+export function replaceNic(net: Network, pc: Device): string {
+  if (!pc.nic) return 'This machine has no network card to replace.';
+  pc.nic.failed = false;
+  pc.nic.driver = 'ok';
+  pc.nic.version = CURRENT_NIC_DRIVER;
+  pc.nic.disabled = false;
+  net.commit();
+  return 'Swapped in a spare network card. Windows found it and installed the driver.';
 }
 
 export function setAdapterEnabled(net: Network, pc: Device, enabled: boolean): string {

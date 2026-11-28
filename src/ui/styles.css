@@ -141,20 +141,26 @@ kbd {
 
 .speed {
   display: flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  overflow: hidden;
+  padding: 2px 8px;
 }
 
-.speed button {
-  background: transparent;
-  border: 0;
-  padding: 4px 10px;
+.speed input[type='range'] {
+  width: 110px;
+  accent-color: var(--accent);
+}
+
+.speed-val {
+  min-width: 3.2em;
+  text-align: right;
   color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
-.speed button.on {
-  background: var(--panel-2);
+.speed-val.on {
   color: var(--accent);
 }
 
@@ -3409,3 +3415,8 @@ kbd {
 .pause-screen {
   backdrop-filter: blur(4px);
 }
+
+.hw-stats { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--line); }
+.hw-stats dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 6px 0 0; font-size: 12px; }
+.hw-stats dt { color: var(--muted); cursor: help; }
+.hw-stats dd { margin: 0; font-variant-numeric: tabular-nums; }
