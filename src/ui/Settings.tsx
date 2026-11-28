@@ -6,6 +6,7 @@ export const HOTKEYS: { key: string; what: string }[] = [
   { key: '8', what: 'Show or hide the console' },
   { key: '9', what: 'Jump into the console prompt' },
   { key: '/', what: 'Search tickets' },
+  { key: 'P', what: 'Pause or resume (Alt+P while typing)' },
   { key: 'Esc', what: 'Leave a text box (so the number keys work again)' },
   { key: 'Alt + 1-9', what: 'Same as the number keys, even while typing' },
 ];

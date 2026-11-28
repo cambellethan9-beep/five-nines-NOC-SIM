@@ -71,6 +71,9 @@ export function App() {
 function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) {
   const [tick, setTick] = useState(0);
   const [speed, setSpeed] = useState(1);
+  const [paused, setPaused] = useState(false);
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
   const [view, setView] = useState<View>('tickets');
   const [ticketSel, setTicketSel] = useState<string | null>(null);
   const knownTickets = useRef(new Set(game.queue.tickets.map((x) => x.id)));
@@ -106,6 +109,13 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
       if (e.ctrlKey || e.metaKey) return;
       const el = document.activeElement as HTMLElement | null;
       const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      // P pauses and resumes (Alt+P while typing); it works even from the pause screen.
+      if (e.code === 'KeyP' && (!typing || e.altKey)) {
+        if (!pausedRef.current && document.querySelector('.modal-backdrop')) return;
+        e.preventDefault();
+        setPaused((x) => !x);
+        return;
+      }
       if (document.querySelector('.modal-backdrop')) return;
       if (e.key === 'Escape' && typing) {
         el!.blur();
@@ -163,7 +173,7 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
   useEffect(() => {
     const id = setInterval(() => {
       // Time stands still while the first-day intro or the help tour is open.
-      if (!game.introPending && !helpOpenRef.current) {
+      if (!game.introPending && !helpOpenRef.current && !pausedRef.current) {
         game.tick(TICK_MS * speed);
         game.realTick(TICK_MS); // training counts real time, not game time
       }
@@ -259,6 +269,9 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
           </button>
           <button className="ghost small-ghost" onClick={() => setConfirmNew(true)}>
             New game
+          </button>
+          <button className={`ghost small-ghost pause-btn ${paused ? 'on' : ''}`} onClick={() => setPaused((x) => !x)} title="Pause (P)">
+            {paused ? 'Resume' : 'Pause'}
           </button>
           <div className="speed" role="group" aria-label="Simulation speed">
             {[1, 10].map((s) => (
@@ -419,6 +432,25 @@ function GameScreen({ game, onNewGame }: { game: Game; onNewGame: () => void }) 
             setTick((n) => n + 1);
           }}
         />
+      )}
+      {paused && (
+        <div className="modal-backdrop pause-screen">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="paused-title">
+            <h2 id="paused-title">Paused</h2>
+            <p className="modal-sub">The shift clock, SLAs, outages and training are all stopped. Press P or Resume to carry on.</p>
+            <div className="td-buttons">
+              <button className="secondary" onClick={() => setSettingsOpen(true)}>
+                Settings
+              </button>
+              <button className="secondary" onClick={() => setAchOpen(true)}>
+                Achievements
+              </button>
+              <button className="primary" onClick={() => setPaused(false)} autoFocus>
+                Resume
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {achOpen && <AchievementsDialog game={game} onClose={() => setAchOpen(false)} />}
       {settingsOpen && (

@@ -3401,3 +3401,11 @@ kbd {
   max-height: 88vh;
   overflow: auto;
 }
+
+.pause-btn.on {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+.pause-screen {
+  backdrop-filter: blur(4px);
+}

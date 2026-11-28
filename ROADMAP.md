@@ -274,6 +274,8 @@ error messages, the faults it can cause, and ticket templates that use it.
 - [x] **Custom backgrounds (owner's request, built for the console and the Map canvas):** each has its own image (a web
       link, or a file shrunk to fit browser storage), fit (fill / whole image / tile), dim and blur; the Map's floor
       zones turn see-through. Other areas (page backdrop, sidebar, main view, top bar, dialogs) can follow on request
+- [x] **Pause:** button and P key (Alt+P while typing); stops the shift clock, SLAs, drain and real-time training; the
+      pause screen blocks play and offers Settings (backgrounds) and Achievements
 - [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
