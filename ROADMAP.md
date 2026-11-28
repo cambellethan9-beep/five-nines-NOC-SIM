@@ -271,9 +271,9 @@ error messages, the faults it can cause, and ticket templates that use it.
       access-class, and their changes (and the tickets they cause) stop; only Jordan keeps access
 - [x] **Escalations are checked:** a coworker's fix is verified against the network; if the ticket's users are still
       down they hand it back honestly, and they mention when others are down for an unrelated reason
-- [ ] **Fully customizable backgrounds (owner's request):** not just colors: your own images (a URL from the web or a
-      file from your computer) as backgrounds, with fit and readability (dim/blur) controls. Which areas get one is
-      being decided (candidates: page backdrop, sidebar, main view area, Map canvas, console, top bar)
+- [x] **Custom backgrounds (owner's request, built for the console and the Map canvas):** each has its own image (a web
+      link, or a file shrunk to fit browser storage), fit (fill / whole image / tile), dim and blur; the Map's floor
+      zones turn see-through. Other areas (page backdrop, sidebar, main view, top bar, dialogs) can follow on request
 - [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
