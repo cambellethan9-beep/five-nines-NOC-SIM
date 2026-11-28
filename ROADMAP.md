@@ -276,7 +276,7 @@ error messages, the faults it can cause, and ticket templates that use it.
       zones turn see-through. Other areas (page backdrop, sidebar, main view, top bar, dialogs) can follow on request
 - [x] **Pause:** button and P key (Alt+P while typing); stops the shift clock, SLAs, drain and real-time training; the
       pause screen blocks play and offers Settings (backgrounds) and Achievements
-- [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
+- [ ] **Python automation lab (Pyodide)**: moved to its own phase right after Phase 2 (Phase 2.5 below)
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
   - L3: wrong gateway, wrong IP/mask, missing static route, OSPF neighbor down (area/timers/passive), ACL blocking traffic
@@ -290,8 +290,9 @@ error messages, the faults it can cause, and ticket templates that use it.
       happen; ticket text, subject and true priority come from the real impact on real users, in the reporter's
       persona; extra related faults by rank (Tier 2 sometimes, Tier 3+ often, up to 3), red herrings from Tier 3,
       "Configured from console by <coworker>" logs on config faults; difficulty from the faults; checked by outcome
-      (every hurt user has their services back); 60% generated / 40% hand-built. Still to come: skill-radar
-      weighting, more building blocks (routing protocols, NAT, security features)
+      (every hurt user has their services back); 60% generated / 40% hand-built. Nov 28 2026: +6 blocks (OSPF
+      passive-interface on the uplink, OSPF network statement missing VLAN 10, `ip nat inside` gone, NAT ACL narrowed
+      to the servers, helper-address pointing at the wrong server, port-security violation from a new dock)
 - [x] **Tell the user it's fixed:** a resolved incident leaves its reporter idle (draining like an outage) until you
       notify them directly or announce to everyone; they chase you in chat; coworkers notify on their own fixes
 - [x] **Real-time breakage (#2):** hardware wears out on its own clock (`src/game/breakage.ts`), separate from the
@@ -302,14 +303,43 @@ error messages, the faults it can cause, and ticket templates that use it.
       free port and configure it the same). Repairs: "Replace cable" on the switch front panel (2 min), new NIC at the
       desk. **MTBF** (time on shift / failures) and **MTTR** (failure to part replaced) in Monitor and the shift report.
       Later: optics, PSUs, fans, whole switches "once in a blue moon" scaled by network size (Phase 3 hardware)
-- [ ] **Skill radar (#27):** incidents tagged by category, scored on performance
-- [ ] **Stale docs (#47a, #50):** network changes invalidate notes and predecessor runbooks
+- [x] **Skill radar (#27):** every fault block and ticket template is tagged with topics (`src/game/topics.ts`: physical,
+      VLANs, STP, DHCP/DNS, routing, ACLs, NAT, security, endpoints, ops). Your score per topic is the average of your
+      last 20 tickets in it: fixed yourself instantly 100, at the deadline 60, late down to 30, a senior's fix 20;
+      -30 per false resolve, -15 for Owen's hint; employee and delegated fixes don't count. Radar in the Team view.
+      The generator stays neutral (it doesn't aim at your weak topics) unless the owner wants that
+- [x] **Stale docs (#47a, #50), owner's version:** docs go stale on their own as the network changes; what matters is
+      that **employees learn from your docs automatically** (`src/game/docfacts.ts`). They read the notebook and the
+      inherited docs (with your edits) and pick up facts: who sits on which switch port and VLAN, device and server
+      IPs, where servers and printers plug in. For each thing they need they trust the most recently updated doc.
+      Right about the ticket: +10% chance to fix (+15% if it's your own note or edit) and 15% faster. Stale: -35%, they
+      look in the wrong place and say so when they hand it back ("I went by the Desk and port map..."), and a junior
+      out of their depth may shut the port the doc pointed at, hurting whoever sits there now. Nothing flags a stale
+      doc for you
 
 - [x] **Recurring incidents are normal:** like a real NOC, most tickets come from a handful of common problems (a shut (generator weights the regulars)
       port, an unplugged cable, a wrong VLAN, a printer, a driver). The generator weights a few "regulars" heavily and
       mixes in rarer ones, so repeats in a shift are expected; variety comes from who, where and how it presents
 
 **Done when:** a player can work back-to-back shifts with a realistic mix: familiar recurring incidents plus enough rare ones to stay sharp.
+
+---
+
+## Phase 2.5: Python automation (owner, Nov 28 2026: its own phase, right after Phase 2)
+Estimated at 5-7 working sessions. Possibly a paid feature later.
+- [ ] `python` on NOC-PC opens a Python prompt (Pyodide, loaded from a CDN on first use so the game file stays small);
+      scripts live as notebook notes
+- [ ] A made-up `netsmart` library in the style of Netmiko/NAPALM: `connect(ip)`, `send_command('show ...')` (exactly
+      the console's output), `send_config([...])`, `ping`, `snmp_get`, `syslog()`, plus a ticket API. Scripts see only
+      what an engineer could see (CLI output, SNMP, logs), never game internals. Each command costs game time;
+      errors are real Python tracebacks
+- [ ] Scheduled jobs on NOC-PC's clock (game time); employees can run your scripts as runbook steps
+- [ ] Uses: config backups across every device, audits (unused ports shut, weak passwords, SSH v2, NTP), bulk
+      changes (a VLAN on every trunk, password rotation; a bug in a loop really breaks 20 ports), health polling and
+      auto-declared incidents, careful auto-fixes, inventory and docs from neighbor discovery, triage scripts, before/
+      after checks for change requests
+- [ ] Automation-type tickets and how they're scored; unlocks at Network Engineer or with an automation cert
+- [ ] Tests run real Python against the sim; example scripts
 
 ---
 
@@ -396,15 +426,22 @@ error messages, the faults it can cause, and ticket templates that use it.
 - **Management console:** roster, skills, morale, workload, points, runbooks; fire, raise, promote, demote, train
 - **Training in real time:** from 10 real minutes (easy) to 4 real hours (hard); they do no tickets while training.
   Bundle training levels into made-up NetSmart certificates; hiring can require a certificate
-- **Proposed next (Nov 28 2026, awaiting yays):** topic skills per employee raised by certificates (NSCT desk/cabling;
+- **Approved and built Nov 28 2026:** topic skills per employee raised by certificates (NSCT desk/cabling;
   NSCA VLANs, trunks, addressing, DHCP/DNS, ACL basics, NAT, monitoring; NSCS advanced ACLs, port security, snooping/
   DAI, hardening; NSCP dynamic routing, STP/EtherChannel/VTP, backups/upgrades; no "troubleshooting method" topic);
   every fault and ticket tagged with a topic; employees can work **without** runbooks (slower, success by topic skill
   vs difficulty, juniors occasionally make it worse) and pick up tickets on their own only when confident; a simple
   rule-based **chat with each employee** ("take INC-1004", "use <runbook> on INC-1004", "drop it", "status",
   "train NSCA", "focus on printers" / "only P1s" / "anything"), and they message you about pickups, fixes, hand-backs
-- **Learning by doing (owner's idea):** every incident an employee works makes them better at its topics (about +2
-  per incident, per topic); after each incident they report what improved ("ACLs +2%, port security +4%")
+- **Learning by doing (owner's idea, built):** every ticket an employee works (fixed or not) raises its topics: **+2%
+  for a one-topic ticket, +3% each for two topics, +4% each for three or more** (owner: tickets that span topics teach
+  how they interact, so they're worth more per topic). They report what improved ("VLANs +3%, ACLs +3%")
+- **As built:** certificates add topic skill (NSCT physical/endpoints +20, VLANs +10; NSCA VLANs/DHCP-DNS +25, ACL/NAT
+  +15, routing/ops +10; NSCS security +35, ACLs +25, ops +10; NSCP routing +35, STP +30, ops +20, VLANs +10); a new
+  intern starts at 15 physical/endpoints, 10 VLANs, 5 elsewhere. Without a runbook their chance is 50% + (skill in
+  the ticket's weakest topic - what the difficulty needs: 10/25/45/65/80) / 40, plus or minus your docs, capped
+  3-95%; they pick tickets up on their own at 70%+ within their focus (anything, only P1s, only one topic, or only
+  what you hand them). A runbook match always comes first. Assign from the ticket with or without a runbook
 - Later (not this batch): specializations, managing managers, budget and shop consoles, Python lab
 
 **Goal:** the late game shifts from firefighting to building and running a NOC.

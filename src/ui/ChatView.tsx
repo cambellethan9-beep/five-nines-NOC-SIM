@@ -30,7 +30,8 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
   const people = [...game.office.people].sort((a, b) => lastAt(b.pcId) - lastAt(a.pcId) || a.name.localeCompare(b.name));
   const nameOf = (from: string) => chat.nameOf(from);
   const teammate = active.startsWith('cw:') ? COWORKERS.find((c) => `cw:${c.id}` === active) : undefined;
-  const person = active === ALL ? null : chat.person(active);
+  const employee = active.startsWith('emp:') ? game.team.find(active.slice(4)) : undefined;
+  const person = active === ALL || employee ? null : chat.person(active);
 
   const send = () => {
     chat.send(active, draft);
@@ -53,6 +54,13 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
             {chat.unread(`cw:${c.id}`) > 0 && active !== `cw:${c.id}` && <span className="badge hot">{chat.unread(`cw:${c.id}`)}</span>}
           </button>
         ))}
+        {game.team.employees.map((e) => (
+          <button key={e.id} className={`chat-item ${active === `emp:${e.id}` ? 'active' : ''}`} onClick={() => onSelect(`emp:${e.id}`)}>
+            <span className="ci-name">{e.name}</span>
+            <span className="ci-sub">{e.title} · works for you</span>
+            {chat.unread(`emp:${e.id}`) > 0 && active !== `emp:${e.id}` && <span className="badge hot">{chat.unread(`emp:${e.id}`)}</span>}
+          </button>
+        ))}
         <h2 className="side-title">Staff</h2>
         {people.map((p) => (
           <button key={p.pcId} className={`chat-item ${active === p.pcId ? 'active' : ''}`} onClick={() => onSelect(p.pcId)}>
@@ -71,9 +79,11 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
           computer?" or "Is it working now?" Their answers are based on what's really happening on their PC.
         </p>
         <header className="chat-head">
-          <h2>{teammate ? teammate.name : person ? person.name : '# everyone'}</h2>
+          <h2>{employee ? employee.name : teammate ? teammate.name : person ? person.name : '# everyone'}</h2>
           <p className="dp-model">
-            {teammate
+            {employee
+              ? `${employee.title}. Short and literal: "take INC-1004", "use <runbook> on INC-1004", "drop it", "status", "skills", "train NSCA", "focus on printers", "only P1s", "anything", "only when I tell you".`
+              : teammate
               ? `${teammate.title} · ${teammate.tenure}. ${teammate.blurb}`
               : person
               ? `${person.title} · desk ${person.desk} · ${game.net.device(person.pcId).running.hostname}`
@@ -111,7 +121,9 @@ export function ChatView({ game, tick, active, onSelect }: Props) {
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder={
-              teammate
+              employee
+                ? `Message ${employee.name.split(' ')[0]}, e.g. "take INC-1004"`
+                : teammate
                 ? `Message ${teammate.name.split(' ')[0]}, e.g. "any idea on my ticket?"`
                 : person
                   ? `Message ${person.name.split(' ')[0]}, e.g. "can you check the cable behind your PC?"`

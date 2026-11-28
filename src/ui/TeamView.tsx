@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import type { Game } from '../game/game';
-import { CERTS, INTERN_BAR, INTERN_PROMOTION_REWARD, INTERN_STREAK, INTERN_TERM_SHIFTS, type Employee } from '../game/team';
+import { CERT_TOPICS, CERTS, CONFIDENT, INTERN_BAR, INTERN_PROMOTION_REWARD, INTERN_STREAK, INTERN_TERM_SHIFTS, skillOf, type Employee, type Focus } from '../game/team';
+import { playerSkills, RADAR_WINDOW, TOPICS, type TopicScore } from '../game/topics';
 
 function realTime(ms: number): string {
   const m = Math.ceil(ms / 60_000);
   return m >= 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m} min`;
 }
 
-function statusText(game: Game, e: Employee): string {
+function statusText(_game: Game, e: Employee): string {
   const s = e.status;
   if (s.kind === 'working') return `Working ${s.ticketId} with "${s.runbookTitle}"`;
+  if (s.kind === 'investigating') return `Working ${s.ticketId} on their own`;
   if (s.kind === 'training') return `Training for ${s.cert}: ${realTime(s.remainingRealMs)} of real time left`;
-  return game.notes.some((n) => n.runbook?.enabled) || e.ownRunbooks.length ? 'Idle: waiting for a ticket a runbook matches' : 'Idle: no runbooks to follow';
+  return e.focus === 'told' ? 'Idle: waiting for you (or a runbook match)' : 'Idle: looking for a ticket they can handle';
 }
 
 export function TeamView({ game, tick, onMessage }: { game: Game; tick: number; onMessage: (t: string) => void }) {
@@ -22,8 +24,19 @@ export function TeamView({ game, tick, onMessage }: { game: Game; tick: number; 
   const current = team.employees.find((e) => e.id === sel) ?? team.employees[0] ?? null;
   const shift = game.queue.shift;
 
+  const mine = playerSkills(game.queue.tickets, game.chat.state.hinted ?? []);
   return (
     <div className="team-view">
+      <section className="my-skills" aria-label="Your skill radar">
+        <div>
+          <h2>Your skills</h2>
+          <p className="muted">
+            Per topic, how you handled your last {RADAR_WINDOW} tickets in it: fixed it yourself quickly scores high; late fixes, false resolves, Owen's hints and
+            handing it up cost. Tickets your team or a delegate fixed don't count.
+          </p>
+        </div>
+        <SkillRadar scores={mine} />
+      </section>
       <header className="team-head">
         <h2>Your team</h2>
         {!team.intern() && (
@@ -44,8 +57,8 @@ export function TeamView({ game, tick, onMessage }: { game: Game; tick: number; 
 
       {!team.employees.length ? (
         <p className="empty">
-          No one yet. Interns follow your runbooks: write them in Docs (mark the lines to type with "This is a command", then turn on "Use this note as a runbook" and add triggers). Paid hires
-          come with the budget.
+          No one yet. Employees follow your runbooks when one matches (write them in Docs: mark the lines to type with "This is a command", then turn on "Use this note as a
+          runbook" and add triggers), and otherwise work tickets on their own by skill. They read your docs, so keep them current. Paid hires come with the budget.
         </p>
       ) : (
         <div className="team-body">
@@ -123,6 +136,19 @@ function EmployeeCard({ game, e, onMessage }: { game: Game; e: Employee; onMessa
         <dd>about {Math.round(e.minutesPerCommand * 60)} s a command, plus 2 min reading</dd>
         <dt>Catches errors</dt>
         <dd>{e.noticesErrors ? 'Yes, retypes a rejected command' : "No, doesn't notice error messages"}</dd>
+        <dt>Focus</dt>
+        <dd>
+          <select value={e.focus ?? 'anything'} onChange={(ev) => (e.focus = ev.target.value as Focus)} aria-label={`What ${e.name} picks up on their own`}>
+            <option value="anything">Anything they're confident about</option>
+            <option value="p1">Only P1s</option>
+            <option value="told">Only what you hand them</option>
+            {TOPICS.map((t) => (
+              <option key={t.id} value={t.id}>
+                Only {t.name.toLowerCase()}
+              </option>
+            ))}
+          </select>
+        </dd>
         <dt>Certificates</dt>
         <dd>{e.certs.length ? e.certs.join(', ') : 'None'}</dd>
         <dt>Last shifts</dt>
@@ -135,6 +161,30 @@ function EmployeeCard({ game, e, onMessage }: { game: Game; e: Employee; onMessa
           {shift - e.startShift + 1} of {INTERN_TERM_SHIFTS}.
         </p>
       )}
+
+      <h4>Skills</h4>
+      <p className="muted">
+        They pick up tickets on their own when they're at least {Math.round(CONFIDENT * 100)}% sure they can fix them. Every ticket they work teaches them its topics: +2% for one
+        topic, +3% each for two, +4% each for three or more. Message them in Chat to hand them work.
+      </p>
+      <table className="skill-bars">
+        <tbody>
+          {TOPICS.map((t) => {
+            const v = skillOf(e, t.id);
+            return (
+              <tr key={t.id}>
+                <th scope="row">{t.name}</th>
+                <td>
+                  <span className="bar" aria-hidden="true">
+                    <span style={{ width: `${v}%` }} />
+                  </span>
+                </td>
+                <td className="num">{v}%</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
 
       <h4>Runbooks they follow</h4>
       {books.length ? (
@@ -175,7 +225,7 @@ function EmployeeCard({ game, e, onMessage }: { game: Game; e: Employee; onMessa
           Start training
         </button>
       </div>
-      {cert && <p className="muted">{CERTS.find((c) => c.id === cert)?.about} Training runs in real time while the game is open; no tickets until it's done.</p>}
+      {cert && <p className="muted">{CERTS.find((c) => c.id === cert)?.about} Raises {Object.entries(CERT_TOPICS[cert] ?? {}).map(([t, v]) => `${TOPICS.find((x) => x.id === t)!.short} +${v}`).join(', ')}. Training runs in real time while the game is open; no tickets until it's done.</p>}
 
       <h4>Manage</h4>
       <div className="row-form">
@@ -209,5 +259,51 @@ function EmployeeCard({ game, e, onMessage }: { game: Game; e: Employee; onMessa
         )}
       </div>
     </section>
+  );
+}
+
+/** Your skill per topic as a radar: one series, value labels on each spoke, hover for the ticket count. */
+function SkillRadar({ scores }: { scores: TopicScore[] }) {
+  const size = 300;
+  const c = size / 2;
+  const r = 100;
+  const n = scores.length;
+  const at = (i: number, v: number) => {
+    const a = (Math.PI * 2 * i) / n - Math.PI / 2;
+    return [c + Math.cos(a) * r * (v / 100), c + Math.sin(a) * r * (v / 100)] as const;
+  };
+  const pts = scores.map((s, i) => at(i, s.score ?? 0));
+  const tried = scores.filter((s) => s.score !== null).length;
+  return (
+    <figure className="radar">
+      <svg viewBox={`-70 -24 ${size + 140} ${size + 48}`} role="img" aria-label={`Skill radar: ${scores.map((s) => `${TOPICS.find((t) => t.id === s.topic)!.short} ${s.score ?? 'no tickets'}`).join(', ')}`}>
+        {[25, 50, 75, 100].map((ring) => (
+          <polygon key={ring} className="radar-ring" points={scores.map((_, i) => at(i, ring).join(',')).join(' ')} />
+        ))}
+        {scores.map((_, i) => {
+          const [x, y] = at(i, 100);
+          return <line key={i} className="radar-spoke" x1={c} y1={c} x2={x} y2={y} />;
+        })}
+        {/* Only topics you've had tickets in are drawn: an untried topic isn't a zero. */}
+        {tried > 0 && <polygon className="radar-area" points={pts.filter((_, i) => scores[i].score !== null).map((p) => p.join(',')).join(' ')} />}
+        {scores.map((s, i) => {
+          const [x, y] = pts[i];
+          const [lx, ly] = at(i, 128);
+          const t = TOPICS.find((t) => t.id === s.topic)!;
+          return (
+            <g key={s.topic}>
+              {s.score !== null && <circle className="radar-dot" cx={x} cy={y} r={4} />}
+              <circle className="radar-hit" cx={x} cy={y} r={12}>
+                <title>{`${t.name}: ${s.score === null ? 'no tickets yet' : `${s.score} from your last ${s.tickets} ticket${s.tickets === 1 ? '' : 's'}`}`}</title>
+              </circle>
+              <text className="radar-label" x={lx} y={ly} textAnchor={Math.abs(lx - c) < 8 ? 'middle' : lx > c ? 'start' : 'end'} dominantBaseline="middle">
+                {t.short} <tspan className="radar-val">{s.score ?? '–'}</tspan>
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      {tried === 0 && <figcaption className="muted">Close a few tickets yourself to fill this in.</figcaption>}
+    </figure>
   );
 }

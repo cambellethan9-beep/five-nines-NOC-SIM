@@ -5,7 +5,7 @@
 
 import type { Office } from '../content/office';
 import { dhcpRequest, forceApipa } from '../sim/dhcp';
-import { parseIp } from '../sim/ip';
+import { formatIp, parseIp } from '../sim/ip';
 import type { Network } from '../sim/network';
 import { CURRENT_NIC_DRIVER } from '../sim/types';
 import type { Difficulty } from './scoring';
@@ -719,6 +719,169 @@ const portDead: Fault = {
   hint: 'Cable fine, PC fine, config fine, still no link. Try the cable in another port.',
 };
 
+// ---------------------------------------------------------------- routing, NAT, DHCP relay, port security
+
+const coreOspf = (net: Network) => net.device('core1').running.routing?.ospf?.[0];
+
+const ospfPassive: Fault = {
+  id: 'ospf-passive',
+  difficulty: 'hard',
+  weight: 1,
+  sites: (net) => {
+    const o = coreOspf(net);
+    return o && o.passive.passiveDefault && o.passive.exceptions.includes('FastEthernet0/24') ? [{ dev: 'core1' }] : [];
+  },
+  victims: (_n, office) => sample(staff(office), 6),
+  configOn: () => 'core1',
+  resources: () => ['ospf:core1'],
+  inject: (net) => {
+    const o = coreOspf(net)!;
+    o.passive.exceptions = o.passive.exceptions.filter((x) => x !== 'FastEthernet0/24');
+    net.commit();
+  },
+  fix: (net) => {
+    const o = coreOspf(net)!;
+    if (!o.passive.exceptions.includes('FastEthernet0/24')) o.passive.exceptions.push('FastEthernet0/24');
+    net.commit();
+  },
+  explain: () =>
+    "CR-CORE1 runs `passive-interface default` under OSPF, and the `no passive-interface FastEthernet0/24` exception for the uplink to CR-RTR1 had been removed. No hellos on the uplink, so the adjacency dropped, the core lost its default route and the router lost every inside route. Putting the exception back brought the neighbor up (`show ip ospf neighbor`).",
+  hint: 'Internet down for everyone, and the router config looks fine. Does the core still have a default route? Who gives it one?',
+};
+
+const ospfNetwork: Fault = {
+  id: 'ospf-network',
+  difficulty: 'hard',
+  weight: 1,
+  sites: (net) => {
+    const o = coreOspf(net);
+    return o?.networks.some((n) => formatIp(n.addr) === '10.10.0.0' && formatIp(n.wildcard) === '0.0.255.255') ? [{ dev: 'core1' }] : [];
+  },
+  victims: (net, office) => sample(staff(office).filter((pc) => net.device(pc).hostNet?.dhcp !== false), 6),
+  configOn: () => 'core1',
+  resources: () => ['ospf:core1'],
+  inject: (net, site) => {
+    const o = coreOspf(net)!;
+    site.networks = JSON.stringify(o.networks);
+    // Someone "tidied up" the summary into per-VLAN statements and missed the staff VLAN.
+    o.networks = [
+      ...o.networks.filter((n) => formatIp(n.addr) !== '10.10.0.0'),
+      ...['10.10.20.0', '10.10.30.0', '10.10.40.0', '10.10.99.0'].map((a) => ({ addr: parseIp(a)!, wildcard: parseIp('0.0.0.255')!, area: 0 })),
+    ];
+    net.commit();
+  },
+  fix: (net, site) => {
+    coreOspf(net)!.networks = JSON.parse(s(site.networks));
+    net.commit();
+  },
+  explain: () =>
+    "CR-CORE1's OSPF `network 10.10.0.0 0.0.255.255 area 0` had been replaced with per-VLAN statements, and VLAN 10 (10.10.10.0/24) was left out. CR-RTR1 no longer had a route back to the staff subnet, so replies from the internet had nowhere to go. Servers and printers were fine. Adding `network 10.10.10.0 0.0.0.255 area 0` (or restoring the /16) fixed it.",
+  hint: 'Staff PCs have no internet, but the servers do. Does CR-RTR1 know how to get back to 10.10.10.0/24?',
+};
+
+const natInsideOff: Fault = {
+  id: 'nat-inside-off',
+  difficulty: 'moderate',
+  weight: 1,
+  sites: (net) => (net.device('rtr1').running.interfaces['GigabitEthernet0/0']?.nat === 'inside' ? [{ dev: 'rtr1' }] : []),
+  victims: (_n, office) => sample(staff(office), 6),
+  configOn: () => 'rtr1',
+  resources: () => ['nat:rtr1'],
+  inject: (net) => {
+    net.device('rtr1').running.interfaces['GigabitEthernet0/0'].nat = undefined;
+    net.commit();
+  },
+  fix: (net) => {
+    net.device('rtr1').running.interfaces['GigabitEthernet0/0'].nat = 'inside';
+    net.commit();
+  },
+  explain: () => "`ip nat inside` was gone from CR-RTR1 Gi0/0, so nothing was translated and private 10.x addresses went out to the ISP, which drops them. `show ip nat translations` was empty. Putting `ip nat inside` back fixed it.",
+  hint: 'Everyone, internet only, and the routes all look right. What happens to a 10.x source address on its way out?',
+};
+
+const natAclNarrow: Fault = {
+  id: 'nat-acl-narrow',
+  difficulty: 'hard',
+  weight: 1,
+  sites: (net) => {
+    const e = net.device('rtr1').running.acls?.['1']?.entries;
+    return e?.length === 1 && e[0].src && formatIp(e[0].src.addr) === '10.10.0.0' ? [{ dev: 'rtr1' }] : [];
+  },
+  victims: (_n, office) => sample(staff(office), 6),
+  configOn: () => 'rtr1',
+  resources: () => ['nat:rtr1'],
+  inject: (net, site) => {
+    const acl = net.device('rtr1').running.acls!['1'];
+    site.entries = JSON.stringify(acl.entries);
+    acl.entries = [{ seq: 10, action: 'permit', src: { addr: parseIp('10.10.20.0')!, wildcard: parseIp('0.0.0.255')! } }];
+    net.commit();
+  },
+  fix: (net, site) => {
+    net.device('rtr1').running.acls!['1'].entries = JSON.parse(s(site.entries));
+    net.commit();
+  },
+  explain: () =>
+    "Access list 1 on CR-RTR1, which decides what gets NATed, had been narrowed to `permit 10.10.20.0 0.0.0.255` (the servers only). Staff traffic from 10.10.10.0/24 wasn't translated, so it never came back. Widening it to `permit 10.10.0.0 0.0.255.255` fixed it.",
+  hint: 'Servers can reach the internet, staff PCs can\'t. What decides which source addresses the router translates?',
+};
+
+const helperTypo: Fault = {
+  id: 'helper-typo',
+  difficulty: 'moderate',
+  weight: 2,
+  sites: (net, _office, people) =>
+    (net.device('core1').running.interfaces['Vlan10']?.helpers ?? []).some((h) => formatIp(h) === '10.10.20.10')
+      ? people.filter((pc) => net.device(pc).hostNet?.dhcp).slice(0, 2).map((pc, i, all) => ({ pc, pc2: all[1 - i] ?? pc }))
+      : [],
+  victims: (_n, _o, site) => [...new Set([s(site.pc), s(site.pc2)])],
+  configOn: () => 'core1',
+  resources: () => ['helper:Vlan10'],
+  inject: (net, site) => {
+    net.device('core1').running.interfaces['Vlan10'].helpers = [parseIp('10.10.20.11')!];
+    net.commit();
+    for (const pc of new Set([s(site.pc), s(site.pc2)])) {
+      net.device(pc).powered = true;
+      net.commit({ silent: true });
+      dhcpRequest(net, pc);
+    }
+  },
+  fix: (net, site) => {
+    net.device('core1').running.interfaces['Vlan10'].helpers = [parseIp('10.10.20.10')!];
+    net.commit();
+    renew(net, [...new Set([s(site.pc), s(site.pc2)])]);
+  },
+  explain: () => "CR-CORE1's Vlan10 had `ip helper-address 10.10.20.11`: that's the file server, not the DHCP server (CR-DC01, 10.10.20.10). DHCP requests were relayed to a box that doesn't answer them, so PCs that renewed got 169.254 addresses. Correcting the helper and renewing fixed it.",
+  hint: 'Only people who restarted, with 169.254 addresses, and there IS a helper address. Is it pointing at the right server?',
+};
+
+const psecViolation: Fault = {
+  id: 'psec-violation',
+  difficulty: 'moderate',
+  weight: 2,
+  sites: (net, _o, people) => pcSites(net, people, (_pc, sw, port) => !!net.device(sw).running.interfaces[port]?.portSecurity?.enabled && !net.device(sw).errDisabled?.[port]),
+  victims: (_n, _o, site) => [s(site.pc)],
+  resources: (site) => [`port:${site.sw}:${site.port}`, `pc:${site.pc}`, `nic:${site.pc}`],
+  inject: (net, site) => {
+    const nic = net.device(s(site.pc)).hardware[NIC];
+    site.oldMac = nic.mac;
+    // A new USB-C dock: the PC now talks through the dock's own network chip, with its own MAC.
+    nic.mac = `00e0.4c${(0x10 + (s(site.pc).length * 7) % 0xef).toString(16).padStart(2, '0')}.${(0x1000 + s(site.port).length * 977).toString(16)}`;
+    site.newMac = nic.mac;
+    net.commit();
+  },
+  fix: (net, site) => {
+    const sw = net.device(s(site.sw));
+    const ifc = sw.running.interfaces[s(site.port)];
+    if (ifc.portSecurity) ifc.portSecurity.stickyMacs = [s(site.newMac)];
+    if (sw.errDisabled) delete sw.errDisabled[s(site.port)];
+    net.commit();
+    renew(net, [s(site.pc)]);
+  },
+  explain: () =>
+    "The user got a new docking station, which has its own network chip and MAC. Their port runs sticky port security with a maximum of one MAC, still holding the old one, so the port went err-disabled (`%PORT_SECURITY-2-PSECURE_VIOLATION`). Clearing the old sticky MAC and bouncing the port (`shutdown` / `no shutdown`) let it learn the dock.",
+  hint: "Their port's light is off and the switch says err-disabled. Why? What changed on their desk?",
+};
+
 export const FAULTS: Fault[] = [
   portShut,
   wrongVlan,
@@ -747,6 +910,12 @@ export const FAULTS: Fault[] = [
   infraCable,
   nicDead,
   portDead,
+  ospfPassive,
+  ospfNetwork,
+  natInsideOff,
+  natAclNarrow,
+  helperTypo,
+  psecViolation,
 ];
 
 export function faultById(id: string): Fault {

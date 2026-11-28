@@ -179,6 +179,12 @@ export class Game {
       return { id: t.id, hint: t.draft.hint };
     }, () => new Set(this.waitingUsers));
     this.queue.onCoworkerMessage = (id, text) => this.chat.coworkerSay(id, text);
+    this.team.onMessage = (id, text) => this.chat.employeeSay(id, text);
+    this.chat.employeeName = (id) => this.team.find(id)?.name;
+    this.chat.onEmployeeMessage = (id, text) => {
+      const e = this.team.find(id);
+      return e ? this.team.chatReply(this, e, text) : null;
+    };
     // A senior who fixes something renews any PC that gave up on DHCP while it was broken.
     this.queue.onSeniorCleanup = () => {
       for (const d of this.net.devices.values()) {

@@ -7,7 +7,9 @@ multi-site networks, cloud vs on-prem, seasons, then accounts and a $3/month sub
 
 **Read `ROADMAP.md` first.** It is the source of truth for scope, phase order and every agreed decision.
 Phases 0 and 1 are done. Phase 2's CCNA core configuration list (items 1-9: filters, ACLs, NAT, IOS DHCP/DNS,
-syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) and real-time breakage are done. **Next: the rest of Phase 2** (skill radar, stale docs, more generator building blocks) in the order written there; propose before building. Riverside (multi-site) stays locked
+syslog/NTP/SNMP, dynamic routing, switching, operations, security incl. DHCP snooping/DAI/NSOS upgrades) real-time breakage, the skill radar, employees learning from your docs (stale docs), employee topic skills and chat,
+and 6 more generator blocks are done. **Next:** finish what's left of Phase 2 in ROADMAP.md, then **Phase 2.5: Python
+automation** (its own phase, owner's call); propose before building. Riverside (multi-site) stays locked
 until a rank above NOC Manager.
 
 ## The owner and how to work with them
@@ -43,6 +45,9 @@ until a rank above NOC Manager.
   atoms (`hardware: true`) are never picked by the ticket generator.
 - Changing consoles (walking) costs 30 s of game time; SSH from NOC-PC is free. Inherited devices trust the NOC-PC key
   (`ssh nocadmin@<ip>`, no password); default username `nocadmin`.
+- **Topics and skills** (`topics.ts`, `team.ts`, `docfacts.ts`): every fault block and template needs topic tags (a test
+  checks). Employees: topic skills from certs, learning by doing +2% (one topic) / +3% each (two) / +4% each (three+),
+  work without runbooks by skill, read your docs (accurate = bonus, stale = they're misled). Chat with them via `emp:<id>`.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
 - Recurring incidents are realistic: most tickets should come from a few common problems.
 - **Notify the user:** a fixed incident's reporter stays idle (drains like downtime) until you tell them (DM or announce).

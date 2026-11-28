@@ -150,6 +150,15 @@ export class Chat {
     this.state.outbox.push({ at: this.net.time + delayMs, conv, from, text, effect });
   }
 
+  /** Your employees (team.ts): their names, and what they answer when you message one. */
+  employeeName?: (id: string) => string | undefined;
+  onEmployeeMessage?: (id: string, text: string) => string | null;
+
+  /** An employee messages you. */
+  employeeSay(id: string, text: string): void {
+    this.post(`emp:${id}`, `emp:${id}`, text);
+  }
+
   /** A coworker messages you directly. */
   coworkerSay(id: CoworkerId, text: string): void {
     this.post(`cw:${id}`, `cw:${id}`, text);
@@ -271,6 +280,11 @@ export class Chat {
       this.coworkerReply(conv.slice(3) as CoworkerId, clean.toLowerCase());
       return;
     }
+    if (conv.startsWith('emp:')) {
+      const reply = this.onEmployeeMessage?.(conv.slice(4), clean);
+      if (reply) this.queue(conv, conv, reply, this.rng.int(4 * SEC, 15 * SEC));
+      return;
+    }
     const p = this.person(conv);
     if (!p) return;
     const persona = personaOf(p);
@@ -314,6 +328,7 @@ export class Chat {
   /** Display name for a sender id ('you', a coworker, or a staff PC id). */
   nameOf(from: string): string {
     if (from === 'you') return 'You';
+    if (from.startsWith('emp:')) return this.employeeName?.(from.slice(4)) ?? 'Former employee';
     if (from.startsWith('cw:')) return COWORKERS.find((c) => `cw:${c.id}` === from)?.name ?? from;
     return this.person(from)?.name ?? from;
   }

@@ -534,7 +534,7 @@ function TeamPanel({ game, ticket: t, onMessage }: { game: Game; ticket: Ticket;
     <section className="team-panel" aria-label="Your team on this ticket">
       {t.assignedTo && (
         <p>
-          <strong>{t.assignedTo}</strong> is working this with the runbook "{t.runbook}".
+          <strong>{t.assignedTo}</strong> is working this {t.runbook ? <>with the runbook "{t.runbook}"</> : 'on their own'}.
         </p>
       )}
       {!t.assignedTo && open && idle.length > 0 && !t.escalation && emp && (
@@ -549,7 +549,7 @@ function TeamPanel({ game, ticket: t, onMessage }: { game: Game; ticket: Ticket;
           </select>
           <span>with</span>
           <select value={book} onChange={(e) => setBook(e.target.value)} aria-label="Runbook">
-            <option value="">Choose a runbook...</option>
+            <option value="">no runbook (on their own)</option>
             {books.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.title}
@@ -558,11 +558,10 @@ function TeamPanel({ game, ticket: t, onMessage }: { game: Game; ticket: Ticket;
           </select>
           <button
             className="secondary small"
-            disabled={!book}
             onClick={() => {
-              const rb = books.find((r) => r.id === book)!;
-              const err = team.assign(game, emp, t.id, rb);
-              onMessage(err ?? `${emp.name} is on ${t.id} with "${rb.title}".`);
+              const rb = books.find((r) => r.id === book);
+              const err = rb ? team.assign(game, emp, t.id, rb) : team.takeOwn(game, emp, t.id);
+              onMessage(err ?? `${emp.name} is on ${t.id}${rb ? ` with "${rb.title}"` : ' on their own'}.`);
             }}
           >
             Assign
