@@ -48,6 +48,7 @@ until a rank above NOC Manager.
 - **Topics and skills** (`topics.ts`, `team.ts`, `docfacts.ts`): every fault block and template needs topic tags (a test
   checks). Employees: topic skills from certs, learning by doing +2% (one topic) / +3% each (two) / +4% each (three+),
   work without runbooks by skill, read your docs (accurate = bonus, stale = they're misled). Chat with them via `emp:<id>`.
+  Generator stays neutral on topics; instead a **growth bonus** (up to +50% base, 0 at radar 70+) for fixing a weak topic.
 - Chat staff are rule-based (simple conversation only; a disclaimer says so). An AI model for chat is a Phase 7 option.
 - Recurring incidents are realistic: most tickets should come from a few common problems.
 - **Notify the user:** a fixed incident's reporter stays idle (drains like downtime) until you tell them (DM or announce).

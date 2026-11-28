@@ -4,7 +4,7 @@ import { FAULTS } from '../src/game/faults';
 import { Game } from '../src/game/game';
 import { chanceToFix, learnPerTopic, skillOf } from '../src/game/team';
 import { TEMPLATES } from '../src/game/templates';
-import { FAULT_TOPICS, playerSkills, TEMPLATE_TOPICS, ticketTopics, TOPICS } from '../src/game/topics';
+import { FAULT_TOPICS, growthBonus, playerSkills, TEMPLATE_TOPICS, ticketTopics, TOPICS, type TopicScore } from '../src/game/topics';
 
 const MIN = 60_000;
 
@@ -136,5 +136,39 @@ describe('employees learn from your docs', () => {
     expect(advice.stale).toBeNull();
     expect(advice.bonus).toBeGreaterThan(0);
     expect(chanceToFix(e, t, g)).toBeGreaterThan(misled + 0.3);
+  });
+});
+
+describe('growth bonus', () => {
+  const radar = (score: number | null): TopicScore[] => TOPICS.map((t) => ({ topic: t.id, score: t.id === 'nat' ? score : 90, tickets: score === null ? 0 : 5 }));
+
+  it('pays up to half the base points in a weak topic, nothing at 70+', () => {
+    expect(growthBonus(['nat'], radar(0), 140)!.points).toBe(70);
+    expect(growthBonus(['nat'], radar(35), 140)!.points).toBe(35);
+    expect(growthBonus(['nat'], radar(null), 140)!.points).toBe(35); // untried counts as 35
+    expect(growthBonus(['nat'], radar(70), 140)).toBeNull();
+    expect(growthBonus(['nat'], radar(95), 140)).toBeNull();
+    // The weakest topic on the ticket decides.
+    expect(growthBonus(['acl', 'nat'], radar(0), 220)!.topic).toBe('nat');
+  });
+
+  it('shows up on a real resolve, but not after Owen\'s hint', () => {
+    const g = game('growth');
+    g.queue.tickets[0].draft.fix();
+    const tut = g.queue.resolve('INC-1001', 'x');
+    expect(tut.lines.some((l) => l.label.startsWith('Growth'))).toBe(false); // not on the tutorial
+    g.notifyUser('INC-1001', 'direct');
+    expect(g.queue.startTemplate('nat-no-overload', 0)).toBe(true);
+    g.tick(5000);
+    const t = g.queue.openTickets()[0];
+    t.draft.fix();
+    const r = g.queue.resolve(t.id, 'fixed');
+    expect(r.lines.find((l) => l.label.startsWith('Growth: NAT'))?.points).toBeGreaterThan(0);
+    expect(g.queue.startTemplate('nat-inside-missing', 0)).toBe(true);
+    g.tick(5000);
+    const t2 = g.queue.openTickets()[0];
+    (g.chat.state.hinted ??= []).push(t2.id);
+    t2.draft.fix();
+    expect(g.queue.resolve(t2.id, 'fixed').lines.some((l) => l.label.startsWith('Growth'))).toBe(false);
   });
 });

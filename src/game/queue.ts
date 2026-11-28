@@ -430,6 +430,8 @@ export class TicketQueue {
   /** Hooks from the game: a senior's tidy-up after a fix, and how many people are still affected by anything. */
   onSeniorCleanup?: () => void;
   affectedNow?: () => number;
+  /** Extra points for fixing a ticket in a topic you're weak at (set by the game from your skill radar). */
+  growthBonus?: (t: Ticket) => ScoreLine | null;
 
   /** A coworker applies the fix, tidies up like a senior would, then checks it really worked. */
   private seniorFix(t: Ticket): boolean {
@@ -673,6 +675,9 @@ export class TicketQueue {
           ...lines.filter((l) => l.points < 0 || l.label.startsWith('Recovered')),
           { label: 'Time a senior should have spent elsewhere', points: -Math.round(BASE_POINTS[t.difficulty] * menial) },
         ];
+      } else if (t.falseResolves === 0) {
+        const growth = this.growthBonus?.(t);
+        if (growth) lines.push(growth);
       }
       t.status = 'resolved';
       t.resolvedAt = now;

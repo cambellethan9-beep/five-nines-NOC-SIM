@@ -2,6 +2,7 @@
 // monitoring history, background activity and the documentation they inherited.
 
 import { Breakage, type BreakageState } from './breakage';
+import { growthBonus, playerSkills, ticketTopics, TOPICS } from './topics';
 import { replaceNic } from './desk';
 import { Team, type TeamState } from './team';
 import type { RunbookSettings } from './runbooks';
@@ -27,7 +28,7 @@ import { deviceCpu, interfaceRates } from '../sim/traffic';
 import { isHostKind, type Device } from '../sim/types';
 import { Chat, type ChatState } from './chat';
 import { TicketQueue, type QueueState, type Ticket } from './queue';
-import { pointsBar, RANKS, RULES, streakAfterMiss, streakBonus, type Priority } from './scoring';
+import { BASE_POINTS, pointsBar, RANKS, RULES, streakAfterMiss, streakBonus, type Priority } from './scoring';
 import { reachService, serviceHealth, SERVICES, type ServiceHealth } from './services';
 
 /** Walking to a different console costs this much game time. */
@@ -180,6 +181,15 @@ export class Game {
     }, () => new Set(this.waitingUsers));
     this.queue.onCoworkerMessage = (id, text) => this.chat.coworkerSay(id, text);
     this.team.onMessage = (id, text) => this.chat.employeeSay(id, text);
+    this.queue.growthBonus = (t) => {
+      // Owen's hint means you didn't stretch on your own.
+      if (this.chat.state.hinted?.includes(t.id)) return null;
+      if (t === this.queue.tickets.find((x) => x.id === 'INC-1001') && t.draft.templateId === 'port-shutdown') return null; // the tutorial
+      const g = growthBonus(ticketTopics(t.draft), playerSkills(this.queue.tickets, this.chat.state.hinted ?? []), BASE_POINTS[t.difficulty]);
+      if (!g) return null;
+      const name = TOPICS.find((x) => x.id === g.topic)!.short;
+      return { label: `Growth: ${name} is a weak spot for you (radar ${g.score})`, points: g.points };
+    };
     this.chat.employeeName = (id) => this.team.find(id)?.name;
     this.chat.onEmployeeMessage = (id, text) => {
       const e = this.team.find(id);

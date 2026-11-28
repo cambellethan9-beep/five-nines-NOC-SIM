@@ -169,3 +169,24 @@ export function playerSkills(tickets: Ticket[], hinted: string[]): TopicScore[] 
     return { topic: id, score: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null, tickets: vals.length };
   });
 }
+
+/** At or above this radar score in a topic there's no growth bonus. */
+export const GROWTH_FULL_AT = 70;
+/** Largest growth bonus, as a share of the ticket's base points (when your score in the topic is 0). */
+export const GROWTH_MAX = 0.5;
+/** A topic you haven't had a ticket in yet counts as this score (unknown, not zero). */
+export const GROWTH_UNTRIED = 35;
+
+/**
+ * Growth bonus: the generator stays realistic (mostly common incidents), but fixing a ticket in a topic you're weak at
+ * pays extra. Uses your weakest topic on the ticket, from your radar before this ticket. Linear: +50% of base at a
+ * score of 0, nothing at 70+.
+ */
+export function growthBonus(topics: Topic[], radar: TopicScore[], base: number): { topic: Topic; score: number; points: number } | null {
+  if (!topics.length) return null;
+  const scored = topics.map((t) => ({ topic: t, score: radar.find((r) => r.topic === t)?.score ?? GROWTH_UNTRIED }));
+  const weakest = scored.sort((a, b) => a.score - b.score)[0];
+  const factor = Math.max(0, Math.min(1, (GROWTH_FULL_AT - weakest.score) / GROWTH_FULL_AT));
+  const points = Math.round(base * GROWTH_MAX * factor);
+  return points > 0 ? { ...weakest, points } : null;
+}

@@ -307,7 +307,10 @@ error messages, the faults it can cause, and ticket templates that use it.
       VLANs, STP, DHCP/DNS, routing, ACLs, NAT, security, endpoints, ops). Your score per topic is the average of your
       last 20 tickets in it: fixed yourself instantly 100, at the deadline 60, late down to 30, a senior's fix 20;
       -30 per false resolve, -15 for Owen's hint; employee and delegated fixes don't count. Radar in the Team view.
-      The generator stays neutral (it doesn't aim at your weak topics) unless the owner wants that
+      **Decided (owner):** the generator stays realistic, mostly common incidents, and never aims at your weak topics.
+      Instead a **growth bonus** pays for fixing a ticket in a topic you're weak at: by your weakest topic on the
+      ticket (radar before this ticket), +50% of base points at a score of 0, falling linearly to nothing at 70+; an
+      untried topic counts as 35 (+25%). Not on the tutorial, a second attempt, a ticket Owen hinted, or menial work
 - [x] **Stale docs (#47a, #50), owner's version:** docs go stale on their own as the network changes; what matters is
       that **employees learn from your docs automatically** (`src/game/docfacts.ts`). They read the notebook and the
       inherited docs (with your edits) and pick up facts: who sits on which switch port and VLAN, device and server
