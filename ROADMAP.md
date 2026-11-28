@@ -271,6 +271,9 @@ error messages, the faults it can cause, and ticket templates that use it.
       access-class, and their changes (and the tickets they cause) stop; only Jordan keeps access
 - [x] **Escalations are checked:** a coworker's fix is verified against the network; if the ticket's users are still
       down they hand it back honestly, and they mention when others are down for an unrelated reason
+- [ ] **Fully customizable backgrounds (owner's request):** not just colors: your own images (a URL from the web or a
+      file from your computer) as backgrounds, with fit and readability (dim/blur) controls. Which areas get one is
+      being decided (candidates: page backdrop, sidebar, main view area, Map canvas, console, top bar)
 - [ ] **Python automation lab (Pyodide)**: later, paid tier; after runbook scripting
 - [ ] **Faults and tickets that use them:**
   - L1/L2: duplex mismatch errors (done), native VLAN mismatch, err-disabled (port security), STP loops, EtherChannel, VTP wipe
@@ -384,6 +387,15 @@ error messages, the faults it can cause, and ticket templates that use it.
 - **Management console:** roster, skills, morale, workload, points, runbooks; fire, raise, promote, demote, train
 - **Training in real time:** from 10 real minutes (easy) to 4 real hours (hard); they do no tickets while training.
   Bundle training levels into made-up NetSmart certificates; hiring can require a certificate
+- **Proposed next (Nov 28 2026, awaiting yays):** topic skills per employee raised by certificates (NSCT desk/cabling;
+  NSCA VLANs, trunks, addressing, DHCP/DNS, ACL basics, NAT, monitoring; NSCS advanced ACLs, port security, snooping/
+  DAI, hardening; NSCP dynamic routing, STP/EtherChannel/VTP, backups/upgrades; no "troubleshooting method" topic);
+  every fault and ticket tagged with a topic; employees can work **without** runbooks (slower, success by topic skill
+  vs difficulty, juniors occasionally make it worse) and pick up tickets on their own only when confident; a simple
+  rule-based **chat with each employee** ("take INC-1004", "use <runbook> on INC-1004", "drop it", "status",
+  "train NSCA", "focus on printers" / "only P1s" / "anything"), and they message you about pickups, fixes, hand-backs
+- **Learning by doing (owner's idea):** every incident an employee works makes them better at its topics (about +2
+  per incident, per topic); after each incident they report what improved ("ACLs +2%, port security +4%")
 - Later (not this batch): specializations, managing managers, budget and shop consoles, Python lab
 
 **Goal:** the late game shifts from firefighting to building and running a NOC.
